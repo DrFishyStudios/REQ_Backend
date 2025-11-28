@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -207,8 +207,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
-    <ClInclude Include="include\req\shared\AccountStore.h" />
-    <ClInclude Include="include\req\shared\CharacterStore.h" />
     <ClInclude Include="include\req\shared\Config.h" />
     <ClInclude Include="include\req\shared\Connection.h" />
     <ClInclude Include="include\req\shared\DataLoader.h" />
@@ -230,8 +228,6 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="REQ_Shared.cpp" />
-    <ClCompile Include="src\AccountStore.cpp" />
-    <ClCompile Include="src\CharacterStore.cpp" />
     <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\Connection.cpp" />
     <ClCompile Include="src\DataLoader.cpp" />

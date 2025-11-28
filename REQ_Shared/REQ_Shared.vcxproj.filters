@@ -48,6 +48,12 @@
     <ClInclude Include="include\req\shared\ProtocolSchemas.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\req\shared\AccountStore.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\req\shared\CharacterStore.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="REQ_Shared.cpp">
@@ -69,6 +75,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\ProtocolSchemas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\AccountStore.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\CharacterStore.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
