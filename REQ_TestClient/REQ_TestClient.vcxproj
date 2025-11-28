@@ -195,6 +195,7 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\TestClient.cpp" />
+    <ClCompile Include="src\TestClient_Movement.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\req\testclient\TestClient.h" />

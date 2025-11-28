@@ -228,9 +228,13 @@ void TestClient::run() {
     req::shared::logInfo("TestClient", std::string{"  zoneId="} + std::to_string(zoneId));
     req::shared::logInfo("TestClient", std::string{"  zoneEndpoint="} + zoneHost + ":" + std::to_string(zonePort));
 
-    // Stage 4: Zone Auth
-    req::shared::logInfo("TestClient", "--- Stage 4: Zone Auth ---");
-    if (!doZoneAuth(zoneHost, zonePort, handoffToken, selectedCharacterId)) {
+    // Stage 4: Zone Auth and Connect
+    req::shared::logInfo("TestClient", "--- Stage 4: Zone Auth & Movement Test ---");
+    std::shared_ptr<boost::asio::io_context> zoneIoContext;
+    std::shared_ptr<Tcp::socket> zoneSocket;
+    
+    if (!doZoneAuthAndConnect(zoneHost, zonePort, handoffToken, selectedCharacterId,
+                             zoneIoContext, zoneSocket)) {
         req::shared::logError("TestClient", "Zone auth stage failed");
         std::cout << "\nPress Enter to exit...";
         std::cin.get();
@@ -238,9 +242,13 @@ void TestClient::run() {
     }
     
     req::shared::logInfo("TestClient", "");
-    req::shared::logInfo("TestClient", "=== Full Handshake Completed Successfully ===");
-    std::cout << "\nPress Enter to exit...";
-    std::cin.get();
+    req::shared::logInfo("TestClient", "=== Zone Auth Completed Successfully ===");
+    
+    // Stage 5: Movement Test Loop
+    runMovementTestLoop(zoneIoContext, zoneSocket, selectedCharacterId);
+    
+    req::shared::logInfo("TestClient", "");
+    req::shared::logInfo("TestClient", "=== Test Client Exiting ===");
 }
 
 bool TestClient::doLogin(const std::string& username,
@@ -318,61 +326,6 @@ bool TestClient::doLogin(const std::string& username,
     
     req::shared::logInfo("TestClient", std::string{"Selected world: "} + world.worldName + 
         " (ruleset: " + world.rulesetId + ")");
-    
-    return true;
-}
-
-bool TestClient::doZoneAuth(const std::string& zoneHost,
-                            std::uint16_t zonePort,
-                            req::shared::HandoffToken handoffToken,
-                            req::shared::PlayerId characterId) {
-    boost::asio::io_context io;
-    Tcp::socket socket(io);
-    boost::system::error_code ec;
-    
-    req::shared::logInfo("TestClient", std::string{"Connecting to zone server at "} + 
-        zoneHost + ":" + std::to_string(zonePort) + "...");
-    socket.connect({ boost::asio::ip::make_address(zoneHost, ec), zonePort }, ec);
-    if (ec) {
-        req::shared::logError("TestClient", "Failed to connect to zone server: " + ec.message());
-        return false;
-    }
-    req::shared::logInfo("TestClient", "Connected to zone server");
-    
-    // Build and send ZoneAuthRequest
-    std::string requestPayload = req::shared::protocol::buildZoneAuthRequestPayload(handoffToken, characterId);
-    req::shared::logInfo("TestClient", std::string{"Sending ZoneAuthRequest: handoffToken="} + 
-        std::to_string(handoffToken) + ", characterId=" + std::to_string(characterId));
-    
-    if (!sendMessage(socket, req::shared::MessageType::ZoneAuthRequest, requestPayload)) {
-        return false;
-    }
-
-    // Receive and parse ZoneAuthResponse
-    req::shared::MessageHeader header;
-    std::string respBody;
-    if (!receiveMessage(socket, header, respBody)) {
-        return false;
-    }
-    
-    if (header.type != req::shared::MessageType::ZoneAuthResponse) {
-        req::shared::logError("TestClient", "Unexpected message type from zone server");
-        return false;
-    }
-    
-    req::shared::protocol::ZoneAuthResponseData response;
-    if (!req::shared::protocol::parseZoneAuthResponsePayload(respBody, response)) {
-        req::shared::logError("TestClient", "Failed to parse ZoneAuthResponse");
-        return false;
-    }
-    
-    if (!response.success) {
-        req::shared::logError("TestClient", std::string{"Zone auth failed: "} + 
-            response.errorCode + " - " + response.errorMessage);
-        return false;
-    }
-    
-    req::shared::logInfo("TestClient", std::string{"Zone entry successful: "} + response.welcomeMessage);
     
     return true;
 }

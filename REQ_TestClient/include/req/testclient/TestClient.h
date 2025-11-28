@@ -3,6 +3,9 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <memory>
+
+#include <boost/asio.hpp>
 
 #include "../../REQ_Shared/include/req/shared/Types.h"
 #include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
@@ -14,6 +17,9 @@ public:
     void run();
 
 private:
+    using Tcp = boost::asio::ip::tcp;
+    using IoContext = boost::asio::io_context;
+    
     bool doLogin(const std::string& username,
                  const std::string& password,
                  const std::string& clientVersion,
@@ -48,10 +54,16 @@ private:
                      std::string& outZoneHost,
                      std::uint16_t& outZonePort);
 
-    bool doZoneAuth(const std::string& zoneHost,
-                    std::uint16_t zonePort,
-                    req::shared::HandoffToken handoffToken,
-                    req::shared::PlayerId characterId);
+    bool doZoneAuthAndConnect(const std::string& zoneHost,
+                             std::uint16_t zonePort,
+                             req::shared::HandoffToken handoffToken,
+                             req::shared::PlayerId characterId,
+                             std::shared_ptr<IoContext>& outIoContext,
+                             std::shared_ptr<Tcp::socket>& outSocket);
+    
+    void runMovementTestLoop(std::shared_ptr<IoContext> ioContext,
+                            std::shared_ptr<Tcp::socket> zoneSocket,
+                            std::uint64_t localCharacterId);
 };
 
 } // namespace req::testclient
