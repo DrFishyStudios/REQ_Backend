@@ -211,6 +211,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\CreateTestAccounts.cpp" />
     <ClCompile Include="src\LoginServer.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>

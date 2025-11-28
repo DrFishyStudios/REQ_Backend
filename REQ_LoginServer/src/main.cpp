@@ -5,9 +5,34 @@
 #include "../../REQ_Shared/include/req/shared/Config.h"
 #include "../include/req/login/LoginServer.h"
 
-int main() {
+// Forward declaration for test account creation utility
+namespace req::login {
+    void createTestAccounts();
+}
+
+int main(int argc, char* argv[]) {
     try {
         req::shared::initLogger("REQ_LoginServer");
+        
+        // Check for --create-test-accounts flag
+        bool createTestAccountsMode = false;
+        for (int i = 1; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--create-test-accounts") {
+                createTestAccountsMode = true;
+                break;
+            }
+        }
+        
+        // If in test account creation mode, run that and exit
+        if (createTestAccountsMode) {
+            req::shared::logInfo("Main", "Running in test account creation mode");
+            req::login::createTestAccounts();
+            req::shared::logInfo("Main", "Test account creation complete. Exiting.");
+            return 0;
+        }
+        
+        // Normal server startup
         req::shared::logInfo("Main", "Loading configuration...");
 
         auto config = req::shared::loadLoginConfig("config/login_config.json");

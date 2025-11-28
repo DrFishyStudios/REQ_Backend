@@ -16,8 +16,9 @@
 
 namespace req::world {
 
-WorldServer::WorldServer(const req::shared::WorldConfig& config)
-    : acceptor_(ioContext_), config_(config) {
+WorldServer::WorldServer(const req::shared::WorldConfig& config,
+                         const std::string& charactersPath)
+    : acceptor_(ioContext_), config_(config), characterStore_(charactersPath) {
     using boost::asio::ip::tcp;
     boost::system::error_code ec;
     tcp::endpoint endpoint(boost::asio::ip::make_address(config_.address, ec), config_.port);
@@ -39,6 +40,7 @@ WorldServer::WorldServer(const req::shared::WorldConfig& config)
     req::shared::logInfo("world", std::string{"  worldName="} + config_.worldName);
     req::shared::logInfo("world", std::string{"  autoLaunchZones="} + (config_.autoLaunchZones ? "true" : "false"));
     req::shared::logInfo("world", std::string{"  zones.size()="} + std::to_string(config_.zones.size()));
+    req::shared::logInfo("world", std::string{"  charactersPath="} + charactersPath);
 }
 
 void WorldServer::run() {
@@ -236,8 +238,25 @@ req::shared::HandoffToken WorldServer::generateHandoffToken() {
     req::shared::HandoffToken token = 0;
     do {
         token = dist(rng);
-    } while (token == req::shared::InvalidHandoffToken || handoffs_.count(token) != 0);
+    } while (token == req::shared::InvalidHandoffToken || handoffTokenToCharacterId_.count(token) != 0);
     return token;
+}
+
+std::optional<std::uint64_t> WorldServer::resolveSessionToken(req::shared::SessionToken token) const {
+    // TODO: Integrate with shared session service from LoginServer
+    // This requires either:
+    // 1. A shared Redis/database for session storage
+    // 2. Direct RPC call to LoginServer
+    // 3. Shared in-memory session table (for single-process testing)
+    //
+    // For now, using stub accountId for testing purposes
+    
+    if (token == req::shared::InvalidSessionToken) {
+        return std::nullopt;
+    }
+    
+    req::shared::logWarn("world", "resolveSessionToken: using stub accountId=1 for testing (TODO: implement shared session service)");
+    return 1; // Stub accountId for testing
 }
 
 void WorldServer::handleMessage(const req::shared::MessageHeader& header,
@@ -308,7 +327,7 @@ void WorldServer::handleMessage(const req::shared::MessageHeader& header,
         // Select first available zone (TODO: load balancing, player's last zone, etc.)
         const auto& zone = config_.zones[0];
         auto handoff = generateHandoffToken();
-        handoffs_[handoff] = sessionToken;
+        handoffTokenToCharacterId_[handoff] = 0; // No character yet in old flow
 
         auto respPayload = req::shared::protocol::buildWorldAuthResponseOkPayload(
             handoff, zone.zoneId, zone.host, zone.port);
@@ -320,6 +339,274 @@ void WorldServer::handleMessage(const req::shared::MessageHeader& header,
             ", endpoint=" + zone.host + ":" + std::to_string(zone.port));
         break;
     }
+    
+    case req::shared::MessageType::CharacterListRequest: {
+        req::shared::SessionToken sessionToken = 0;
+        req::shared::WorldId worldId = 0;
+        
+        if (!req::shared::protocol::parseCharacterListRequestPayload(body, sessionToken, worldId)) {
+            req::shared::logError("world", "Failed to parse CharacterListRequest payload");
+            auto errPayload = req::shared::protocol::buildCharacterListResponseErrorPayload("PARSE_ERROR", "Malformed character list request");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::CharacterListResponse, errBytes);
+            return;
+        }
+
+        req::shared::logInfo("world", std::string{"CharacterListRequest: sessionToken="} + 
+            std::to_string(sessionToken) + ", worldId=" + std::to_string(worldId));
+
+        // Validate worldId
+        if (worldId != config_.worldId) {
+            req::shared::logWarn("world", std::string{"WorldId mismatch: requested="} + 
+                std::to_string(worldId) + ", server=" + std::to_string(config_.worldId));
+            auto errPayload = req::shared::protocol::buildCharacterListResponseErrorPayload("WRONG_WORLD", 
+                "This world server does not match requested worldId");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::CharacterListResponse, errBytes);
+            return;
+        }
+
+        // Resolve sessionToken to accountId
+        auto accountId = resolveSessionToken(sessionToken);
+        if (!accountId.has_value()) {
+            req::shared::logWarn("world", "Invalid session token");
+            auto errPayload = req::shared::protocol::buildCharacterListResponseErrorPayload("INVALID_SESSION", 
+                "Session token not recognized");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::CharacterListResponse, errBytes);
+            return;
+        }
+
+        // Load characters for this account and world
+        auto characters = characterStore_.loadCharactersForAccountAndWorld(*accountId, worldId);
+        
+        req::shared::logInfo("world", std::string{"CharacterListRequest: accountId="} + 
+            std::to_string(*accountId) + ", worldId=" + std::to_string(worldId) + 
+            ", characters found=" + std::to_string(characters.size()));
+
+        // Build response with character entries
+        std::vector<req::shared::protocol::CharacterListEntry> entries;
+        for (const auto& ch : characters) {
+            req::shared::protocol::CharacterListEntry entry;
+            entry.characterId = ch.characterId;
+            entry.name = ch.name;
+            entry.race = ch.race;
+            entry.characterClass = ch.characterClass;
+            entry.level = ch.level;
+            entries.push_back(entry);
+            
+            req::shared::logInfo("world", std::string{"  Character: id="} + std::to_string(ch.characterId) + 
+                ", name=" + ch.name + ", race=" + ch.race + ", class=" + ch.characterClass + 
+                ", level=" + std::to_string(ch.level));
+        }
+
+        auto respPayload = req::shared::protocol::buildCharacterListResponseOkPayload(entries);
+        req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+        connection->send(req::shared::MessageType::CharacterListResponse, respBytes);
+        break;
+    }
+    
+    case req::shared::MessageType::CharacterCreateRequest: {
+        req::shared::SessionToken sessionToken = 0;
+        req::shared::WorldId worldId = 0;
+        std::string name, race, characterClass;
+        
+        if (!req::shared::protocol::parseCharacterCreateRequestPayload(body, sessionToken, worldId, name, race, characterClass)) {
+            req::shared::logError("world", "Failed to parse CharacterCreateRequest payload");
+            auto errPayload = req::shared::protocol::buildCharacterCreateResponseErrorPayload("PARSE_ERROR", "Malformed character create request");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::CharacterCreateResponse, errBytes);
+            return;
+        }
+
+        req::shared::logInfo("world", std::string{"CharacterCreateRequest: sessionToken="} + 
+            std::to_string(sessionToken) + ", worldId=" + std::to_string(worldId) + 
+            ", name=" + name + ", race=" + race + ", class=" + characterClass);
+
+        // Validate worldId
+        if (worldId != config_.worldId) {
+            req::shared::logWarn("world", std::string{"WorldId mismatch: requested="} + 
+                std::to_string(worldId) + ", server=" + std::to_string(config_.worldId));
+            auto errPayload = req::shared::protocol::buildCharacterCreateResponseErrorPayload("WRONG_WORLD", 
+                "This world server does not match requested worldId");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::CharacterCreateResponse, errBytes);
+            return;
+        }
+
+        // Resolve sessionToken to accountId
+        auto accountId = resolveSessionToken(sessionToken);
+        if (!accountId.has_value()) {
+            req::shared::logWarn("world", "Invalid session token");
+            auto errPayload = req::shared::protocol::buildCharacterCreateResponseErrorPayload("INVALID_SESSION", 
+                "Session token not recognized");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::CharacterCreateResponse, errBytes);
+            return;
+        }
+
+        // Attempt to create character
+        try {
+            auto newCharacter = characterStore_.createCharacterForAccount(*accountId, worldId, name, race, characterClass);
+            
+            req::shared::logInfo("world", std::string{"Character created successfully: id="} + 
+                std::to_string(newCharacter.characterId) + ", accountId=" + std::to_string(*accountId) + 
+                ", name=" + name + ", race=" + race + ", class=" + characterClass);
+
+            auto respPayload = req::shared::protocol::buildCharacterCreateResponseOkPayload(
+                newCharacter.characterId, newCharacter.name, newCharacter.race, 
+                newCharacter.characterClass, newCharacter.level);
+            req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+            connection->send(req::shared::MessageType::CharacterCreateResponse, respBytes);
+        } catch (const std::exception& e) {
+            std::string errorMsg = e.what();
+            req::shared::logWarn("world", std::string{"Character creation failed: "} + errorMsg);
+            
+            // Determine error code based on exception message
+            std::string errorCode = "CREATE_FAILED";
+            if (errorMsg.find("already exists") != std::string::npos || errorMsg.find("name") != std::string::npos) {
+                errorCode = "NAME_TAKEN";
+            } else if (errorMsg.find("invalid race") != std::string::npos) {
+                errorCode = "INVALID_RACE";
+            } else if (errorMsg.find("invalid class") != std::string::npos) {
+                errorCode = "INVALID_CLASS";
+            }
+            
+            auto errPayload = req::shared::protocol::buildCharacterCreateResponseErrorPayload(errorCode, errorMsg);
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::CharacterCreateResponse, errBytes);
+        }
+        break;
+    }
+    
+    case req::shared::MessageType::EnterWorldRequest: {
+        req::shared::SessionToken sessionToken = 0;
+        req::shared::WorldId worldId = 0;
+        std::uint64_t characterId = 0;
+        
+        if (!req::shared::protocol::parseEnterWorldRequestPayload(body, sessionToken, worldId, characterId)) {
+            req::shared::logError("world", "Failed to parse EnterWorldRequest payload");
+            auto errPayload = req::shared::protocol::buildEnterWorldResponseErrorPayload("PARSE_ERROR", "Malformed enter world request");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::EnterWorldResponse, errBytes);
+            return;
+        }
+
+        req::shared::logInfo("world", std::string{"EnterWorldRequest: sessionToken="} + 
+            std::to_string(sessionToken) + ", worldId=" + std::to_string(worldId) + 
+            ", characterId=" + std::to_string(characterId));
+
+        // Validate worldId
+        if (worldId != config_.worldId) {
+            req::shared::logWarn("world", std::string{"WorldId mismatch: requested="} + 
+                std::to_string(worldId) + ", server=" + std::to_string(config_.worldId));
+            auto errPayload = req::shared::protocol::buildEnterWorldResponseErrorPayload("WRONG_WORLD", 
+                "This world server does not match requested worldId");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::EnterWorldResponse, errBytes);
+            return;
+        }
+
+        // Resolve sessionToken to accountId
+        auto accountId = resolveSessionToken(sessionToken);
+        if (!accountId.has_value()) {
+            req::shared::logWarn("world", "Invalid session token");
+            auto errPayload = req::shared::protocol::buildEnterWorldResponseErrorPayload("INVALID_SESSION", 
+                "Session token not recognized");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::EnterWorldResponse, errBytes);
+            return;
+        }
+
+        // Load character
+        auto character = characterStore_.loadById(characterId);
+        if (!character.has_value()) {
+            req::shared::logWarn("world", std::string{"Character not found: id="} + std::to_string(characterId));
+            auto errPayload = req::shared::protocol::buildEnterWorldResponseErrorPayload("CHARACTER_NOT_FOUND", 
+                "Character does not exist");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::EnterWorldResponse, errBytes);
+            return;
+        }
+
+        // Verify character belongs to this account
+        if (character->accountId != *accountId) {
+            req::shared::logWarn("world", std::string{"Character ownership mismatch: characterId="} + 
+                std::to_string(characterId) + ", expected accountId=" + std::to_string(*accountId) + 
+                ", actual accountId=" + std::to_string(character->accountId));
+            auto errPayload = req::shared::protocol::buildEnterWorldResponseErrorPayload("ACCESS_DENIED", 
+                "Character does not belong to this account");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::EnterWorldResponse, errBytes);
+            return;
+        }
+
+        // Verify character is for this world
+        if (character->homeWorldId != worldId && character->lastWorldId != worldId) {
+            req::shared::logWarn("world", std::string{"Character world mismatch: characterId="} + 
+                std::to_string(characterId) + ", homeWorldId=" + std::to_string(character->homeWorldId) + 
+                ", lastWorldId=" + std::to_string(character->lastWorldId) + ", requested=" + std::to_string(worldId));
+            auto errPayload = req::shared::protocol::buildEnterWorldResponseErrorPayload("WRONG_WORLD_CHARACTER", 
+                "Character does not belong to this world");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::EnterWorldResponse, errBytes);
+            return;
+        }
+
+        // Determine which zone to place character in
+        req::shared::ZoneId targetZoneId = character->lastZoneId;
+        if (targetZoneId == 0) {
+            // Use default starting zone (East Freeport)
+            targetZoneId = 10;
+            req::shared::logInfo("world", std::string{"Character has no last zone, using default zone "} + std::to_string(targetZoneId));
+        }
+
+        // Find zone in config
+        const req::shared::WorldZoneConfig* targetZone = nullptr;
+        for (const auto& zone : config_.zones) {
+            if (zone.zoneId == targetZoneId) {
+                targetZone = &zone;
+                break;
+            }
+        }
+
+        // Fallback to first zone if target not found
+        if (!targetZone && !config_.zones.empty()) {
+            req::shared::logWarn("world", std::string{"Target zone "} + std::to_string(targetZoneId) + 
+                " not found, using first available zone");
+            targetZone = &config_.zones[0];
+            targetZoneId = targetZone->zoneId;
+        }
+
+        if (!targetZone) {
+            req::shared::logError("world", "No zones configured");
+            auto errPayload = req::shared::protocol::buildEnterWorldResponseErrorPayload("NO_ZONES", 
+                "No zones available");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::EnterWorldResponse, errBytes);
+            return;
+        }
+
+        // Generate handoff token
+        auto handoff = generateHandoffToken();
+        handoffTokenToCharacterId_[handoff] = characterId;
+
+        // TODO: Store handoff details for validation by ZoneServer
+        // For now, ZoneServer will need to validate handoffToken + characterId
+
+        auto respPayload = req::shared::protocol::buildEnterWorldResponseOkPayload(
+            handoff, targetZoneId, targetZone->host, targetZone->port);
+        req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+        connection->send(req::shared::MessageType::EnterWorldResponse, respBytes);
+
+        req::shared::logInfo("world", std::string{"EnterWorldResponse OK: characterId="} + 
+            std::to_string(characterId) + ", characterName=" + character->name + 
+            ", handoffToken=" + std::to_string(handoff) + 
+            ", zoneId=" + std::to_string(targetZoneId) + 
+            ", endpoint=" + targetZone->host + ":" + std::to_string(targetZone->port));
+        break;
+    }
+    
     default:
         req::shared::logWarn("world", std::string{"Unsupported message type: "} + 
             std::to_string(static_cast<int>(header.type)));

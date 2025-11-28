@@ -3,6 +3,8 @@
 #include <iostream>
 #include <vector>
 #include <array>
+#include <string>
+#include <algorithm>
 
 #include <boost/asio.hpp>
 
@@ -16,6 +18,43 @@ namespace req::testclient {
 namespace {
     using Tcp = boost::asio::ip::tcp;
     using ByteArray = std::vector<std::uint8_t>;
+    
+    // Client version constant
+    constexpr const char* CLIENT_VERSION = "REQ-TestClient-0.1";
+    
+    // Default credentials for quick testing
+    constexpr const char* DEFAULT_USERNAME = "testuser";
+    constexpr const char* DEFAULT_PASSWORD = "testpass";
+    constexpr const char* DEFAULT_MODE = "login";
+    
+    // Helper: Prompt for input with default value
+    std::string promptWithDefault(const std::string& prompt, const std::string& defaultValue) {
+        std::cout << prompt;
+        std::string input;
+        std::getline(std::cin, input);
+        
+        // Trim whitespace
+        input.erase(0, input.find_first_not_of(" \t\n\r"));
+        input.erase(input.find_last_not_of(" \t\n\r") + 1);
+        
+        if (input.empty()) {
+            return defaultValue;
+        }
+        return input;
+    }
+    
+    // Helper: Convert mode string to LoginMode enum
+    req::shared::protocol::LoginMode parseModeString(const std::string& modeStr) {
+        std::string modeLower = modeStr;
+        std::transform(modeLower.begin(), modeLower.end(), modeLower.begin(), ::tolower);
+        
+        if (modeLower == "register" || modeLower == "reg" || modeLower == "r") {
+            return req::shared::protocol::LoginMode::Register;
+        }
+        
+        // Default to Login for anything else
+        return req::shared::protocol::LoginMode::Login;
+    }
 
     bool sendMessage(Tcp::socket& socket,
                      req::shared::MessageType type,
@@ -72,7 +111,38 @@ namespace {
 }
 
 void TestClient::run() {
-    req::shared::logInfo("TestClient", "=== Starting Login ? World ? Zone Handshake Test ===");
+    req::shared::logInfo("TestClient", "=== REQ Backend Test Client ===");
+    req::shared::logInfo("TestClient", "");
+    
+    // Interactive login prompts
+    std::cout << "\n--- Login Information ---\n";
+    std::string username = promptWithDefault(
+        std::string{"Enter username (default: "} + DEFAULT_USERNAME + "): ",
+        DEFAULT_USERNAME
+    );
+    
+    std::string password = promptWithDefault(
+        std::string{"Enter password (default: "} + DEFAULT_PASSWORD + "): ",
+        DEFAULT_PASSWORD
+    );
+    
+    std::string modeInput = promptWithDefault(
+        std::string{"Mode [login/register] (default: "} + DEFAULT_MODE + "): ",
+        DEFAULT_MODE
+    );
+    
+    // Parse mode
+    req::shared::protocol::LoginMode mode = parseModeString(modeInput);
+    std::string modeStr = (mode == req::shared::protocol::LoginMode::Register) ? "register" : "login";
+    
+    // Log what we're about to do (but not the password!)
+    if (mode == req::shared::protocol::LoginMode::Register) {
+        req::shared::logInfo("TestClient", std::string{"Registering new account: username="} + username);
+    } else {
+        req::shared::logInfo("TestClient", std::string{"Logging in with existing account: username="} + username);
+    }
+    req::shared::logInfo("TestClient", std::string{"Mode: "} + modeStr);
+    req::shared::logInfo("TestClient", "");
     
     req::shared::SessionToken sessionToken = 0;
     req::shared::WorldId worldId = 0;
@@ -84,46 +154,99 @@ void TestClient::run() {
     std::string zoneHost;
     std::uint16_t zonePort = 0;
 
-    const std::string username = "testuser";
-    const std::string password = "testpass";
-    const std::string clientVersion = "0.1.0";
-
     // Stage 1: Login
-    req::shared::logInfo("TestClient", "--- Stage 1: Login ---");
-    if (!doLogin(username, password, clientVersion, sessionToken, worldId, worldHost, worldPort)) {
+    req::shared::logInfo("TestClient", "--- Stage 1: Login/Registration ---");
+    if (!doLogin(username, password, CLIENT_VERSION, mode, sessionToken, worldId, worldHost, worldPort)) {
         req::shared::logError("TestClient", "Login stage failed");
+        std::cout << "\nPress Enter to exit...";
+        std::cin.get();
         return;
     }
-    req::shared::logInfo("TestClient", std::string{"Login stage succeeded:"});
+    
+    if (mode == req::shared::protocol::LoginMode::Register) {
+        req::shared::logInfo("TestClient", "Registration and login succeeded!");
+    } else {
+        req::shared::logInfo("TestClient", "Login succeeded!");
+    }
     req::shared::logInfo("TestClient", std::string{"  sessionToken="} + std::to_string(sessionToken));
     req::shared::logInfo("TestClient", std::string{"  worldId="} + std::to_string(worldId));
     req::shared::logInfo("TestClient", std::string{"  worldEndpoint="} + worldHost + ":" + std::to_string(worldPort));
 
-    // Stage 2: World Auth
-    req::shared::logInfo("TestClient", "--- Stage 2: World Auth ---");
-    if (!doWorldAuth(worldHost, worldPort, sessionToken, worldId, handoffToken, zoneId, zoneHost, zonePort)) {
-        req::shared::logError("TestClient", "World auth stage failed");
+    // Stage 2: Character List
+    req::shared::logInfo("TestClient", "--- Stage 2: Character List ---");
+    std::vector<req::shared::protocol::CharacterListEntry> characters;
+    if (!doCharacterList(worldHost, worldPort, sessionToken, worldId, characters)) {
+        req::shared::logError("TestClient", "Character list stage failed");
+        std::cout << "\nPress Enter to exit...";
+        std::cin.get();
         return;
     }
-    req::shared::logInfo("TestClient", std::string{"World auth stage succeeded:"});
+    req::shared::logInfo("TestClient", std::string{"Character list retrieved: "} + std::to_string(characters.size()) + " character(s)");
+    
+    // Display characters
+    if (characters.empty()) {
+        req::shared::logInfo("TestClient", "No characters found. Creating a new character...");
+        
+        // Create a test character
+        req::shared::protocol::CharacterListEntry newChar;
+        if (!doCharacterCreate(worldHost, worldPort, sessionToken, worldId, "TestWarrior", "Human", "Warrior", newChar)) {
+            req::shared::logError("TestClient", "Character creation failed");
+            std::cout << "\nPress Enter to exit...";
+            std::cin.get();
+            return;
+        }
+        
+        req::shared::logInfo("TestClient", std::string{"Character created: id="} + std::to_string(newChar.characterId) + 
+            ", name=" + newChar.name + ", race=" + newChar.race + ", class=" + newChar.characterClass + 
+            ", level=" + std::to_string(newChar.level));
+        
+        // Add to list
+        characters.push_back(newChar);
+    } else {
+        for (const auto& ch : characters) {
+            req::shared::logInfo("TestClient", std::string{"  Character: id="} + std::to_string(ch.characterId) + 
+                ", name=" + ch.name + ", race=" + ch.race + ", class=" + ch.characterClass + 
+                ", level=" + std::to_string(ch.level));
+        }
+    }
+
+    // Stage 3: Enter World with Character
+    req::shared::logInfo("TestClient", "--- Stage 3: Enter World ---");
+    std::uint64_t selectedCharacterId = characters[0].characterId;
+    req::shared::logInfo("TestClient", std::string{"Selecting character: id="} + std::to_string(selectedCharacterId) + 
+        ", name=" + characters[0].name);
+    
+    if (!doEnterWorld(worldHost, worldPort, sessionToken, worldId, selectedCharacterId, 
+                      handoffToken, zoneId, zoneHost, zonePort)) {
+        req::shared::logError("TestClient", "Enter world stage failed");
+        std::cout << "\nPress Enter to exit...";
+        std::cin.get();
+        return;
+    }
+    req::shared::logInfo("TestClient", std::string{"Enter world succeeded:"});
     req::shared::logInfo("TestClient", std::string{"  handoffToken="} + std::to_string(handoffToken));
     req::shared::logInfo("TestClient", std::string{"  zoneId="} + std::to_string(zoneId));
     req::shared::logInfo("TestClient", std::string{"  zoneEndpoint="} + zoneHost + ":" + std::to_string(zonePort));
 
-    // Stage 3: Zone Auth
-    req::shared::logInfo("TestClient", "--- Stage 3: Zone Auth ---");
-    const req::shared::PlayerId testCharacterId = 42; // Hardcoded test character
-    if (!doZoneAuth(zoneHost, zonePort, handoffToken, testCharacterId)) {
+    // Stage 4: Zone Auth
+    req::shared::logInfo("TestClient", "--- Stage 4: Zone Auth ---");
+    if (!doZoneAuth(zoneHost, zonePort, handoffToken, selectedCharacterId)) {
         req::shared::logError("TestClient", "Zone auth stage failed");
+        std::cout << "\nPress Enter to exit...";
+        std::cin.get();
         return;
     }
     
+    req::shared::logInfo("TestClient", "");
     req::shared::logInfo("TestClient", "=== Full Handshake Completed Successfully ===");
+    std::cout << "\nPress Enter to exit...";
+    std::cin.get();
 }
 
 bool TestClient::doLogin(const std::string& username,
                          const std::string& password,
                          const std::string& clientVersion,
+                         req::shared::protocol::LoginMode mode,
                          req::shared::SessionToken& outSessionToken,
                          req::shared::WorldId& outWorldId,
                          std::string& outWorldHost,
@@ -140,10 +263,12 @@ bool TestClient::doLogin(const std::string& username,
     }
     req::shared::logInfo("TestClient", "Connected to login server");
     
-    // Build and send LoginRequest
-    std::string requestPayload = req::shared::protocol::buildLoginRequestPayload(username, password, clientVersion);
+    // Build and send LoginRequest with mode
+    std::string modeStr = (mode == req::shared::protocol::LoginMode::Register) ? "register" : "login";
+    std::string requestPayload = req::shared::protocol::buildLoginRequestPayload(username, password, clientVersion, mode);
+    
     req::shared::logInfo("TestClient", std::string{"Sending LoginRequest: username="} + username + 
-        ", clientVersion=" + clientVersion);
+        ", clientVersion=" + clientVersion + ", mode=" + modeStr);
     
     if (!sendMessage(socket, req::shared::MessageType::LoginRequest, requestPayload)) {
         return false;
@@ -168,7 +293,14 @@ bool TestClient::doLogin(const std::string& username,
     }
     
     if (!response.success) {
-        req::shared::logError("TestClient", std::string{"Login failed: "} + response.errorCode + " - " + response.errorMessage);
+        // Log the error with context about what we were trying to do
+        if (mode == req::shared::protocol::LoginMode::Register) {
+            req::shared::logError("TestClient", std::string{"Registration failed: "} + 
+                response.errorCode + " - " + response.errorMessage);
+        } else {
+            req::shared::logError("TestClient", std::string{"Login failed: "} + 
+                response.errorCode + " - " + response.errorMessage);
+        }
         return false;
     }
     
@@ -186,68 +318,6 @@ bool TestClient::doLogin(const std::string& username,
     
     req::shared::logInfo("TestClient", std::string{"Selected world: "} + world.worldName + 
         " (ruleset: " + world.rulesetId + ")");
-    
-    return true;
-}
-
-bool TestClient::doWorldAuth(const std::string& worldHost,
-                             std::uint16_t worldPort,
-                             req::shared::SessionToken sessionToken,
-                             req::shared::WorldId worldId,
-                             req::shared::HandoffToken& outHandoffToken,
-                             req::shared::ZoneId& outZoneId,
-                             std::string& outZoneHost,
-                             std::uint16_t& outZonePort) {
-    boost::asio::io_context io;
-    Tcp::socket socket(io);
-    boost::system::error_code ec;
-    
-    req::shared::logInfo("TestClient", std::string{"Connecting to world server at "} + 
-        worldHost + ":" + std::to_string(worldPort) + "...");
-    socket.connect({ boost::asio::ip::make_address(worldHost, ec), worldPort }, ec);
-    if (ec) {
-        req::shared::logError("TestClient", "Failed to connect to world server: " + ec.message());
-        return false;
-    }
-    req::shared::logInfo("TestClient", "Connected to world server");
-    
-    // Build and send WorldAuthRequest
-    std::string requestPayload = req::shared::protocol::buildWorldAuthRequestPayload(sessionToken, worldId);
-    req::shared::logInfo("TestClient", std::string{"Sending WorldAuthRequest: sessionToken="} + 
-        std::to_string(sessionToken) + ", worldId=" + std::to_string(worldId));
-    
-    if (!sendMessage(socket, req::shared::MessageType::WorldAuthRequest, requestPayload)) {
-        return false;
-    }
-
-    // Receive and parse WorldAuthResponse
-    req::shared::MessageHeader header;
-    std::string respBody;
-    if (!receiveMessage(socket, header, respBody)) {
-        return false;
-    }
-    
-    if (header.type != req::shared::MessageType::WorldAuthResponse) {
-        req::shared::logError("TestClient", "Unexpected message type from world server");
-        return false;
-    }
-    
-    req::shared::protocol::WorldAuthResponseData response;
-    if (!req::shared::protocol::parseWorldAuthResponsePayload(respBody, response)) {
-        req::shared::logError("TestClient", "Failed to parse WorldAuthResponse");
-        return false;
-    }
-    
-    if (!response.success) {
-        req::shared::logError("TestClient", std::string{"World auth failed: "} + 
-            response.errorCode + " - " + response.errorMessage);
-        return false;
-    }
-    
-    outHandoffToken = response.handoffToken;
-    outZoneId = response.zoneId;
-    outZoneHost = response.zoneHost;
-    outZonePort = response.zonePort;
     
     return true;
 }
@@ -303,6 +373,190 @@ bool TestClient::doZoneAuth(const std::string& zoneHost,
     }
     
     req::shared::logInfo("TestClient", std::string{"Zone entry successful: "} + response.welcomeMessage);
+    
+    return true;
+}
+
+bool TestClient::doCharacterList(const std::string& worldHost,
+                                 std::uint16_t worldPort,
+                                 req::shared::SessionToken sessionToken,
+                                 req::shared::WorldId worldId,
+                                 std::vector<req::shared::protocol::CharacterListEntry>& outCharacters) {
+    boost::asio::io_context io;
+    Tcp::socket socket(io);
+    boost::system::error_code ec;
+    
+    req::shared::logInfo("TestClient", std::string{"Connecting to world server at "} + 
+        worldHost + ":" + std::to_string(worldPort) + "...");
+    socket.connect({ boost::asio::ip::make_address(worldHost, ec), worldPort }, ec);
+    if (ec) {
+        req::shared::logError("TestClient", "Failed to connect to world server: " + ec.message());
+        return false;
+    }
+    req::shared::logInfo("TestClient", "Connected to world server");
+    
+    // Build and send CharacterListRequest
+    std::string requestPayload = req::shared::protocol::buildCharacterListRequestPayload(sessionToken, worldId);
+    req::shared::logInfo("TestClient", std::string{"Sending CharacterListRequest: sessionToken="} + 
+        std::to_string(sessionToken) + ", worldId=" + std::to_string(worldId));
+    
+    if (!sendMessage(socket, req::shared::MessageType::CharacterListRequest, requestPayload)) {
+        return false;
+    }
+
+    // Receive and parse CharacterListResponse
+    req::shared::MessageHeader header;
+    std::string respBody;
+    if (!receiveMessage(socket, header, respBody)) {
+        return false;
+    }
+    
+    if (header.type != req::shared::MessageType::CharacterListResponse) {
+        req::shared::logError("TestClient", "Unexpected message type from world server");
+        return false;
+    }
+    
+    req::shared::protocol::CharacterListResponseData response;
+    if (!req::shared::protocol::parseCharacterListResponsePayload(respBody, response)) {
+        req::shared::logError("TestClient", "Failed to parse CharacterListResponse");
+        return false;
+    }
+    
+    if (!response.success) {
+        req::shared::logError("TestClient", std::string{"Character list failed: "} + 
+            response.errorCode + " - " + response.errorMessage);
+        return false;
+    }
+    
+    outCharacters = response.characters;
+    return true;
+}
+
+bool TestClient::doCharacterCreate(const std::string& worldHost,
+                                   std::uint16_t worldPort,
+                                   req::shared::SessionToken sessionToken,
+                                   req::shared::WorldId worldId,
+                                   const std::string& name,
+                                   const std::string& race,
+                                   const std::string& characterClass,
+                                   req::shared::protocol::CharacterListEntry& outCharacter) {
+    boost::asio::io_context io;
+    Tcp::socket socket(io);
+    boost::system::error_code ec;
+    
+    req::shared::logInfo("TestClient", std::string{"Connecting to world server at "} + 
+        worldHost + ":" + std::to_string(worldPort) + "...");
+    socket.connect({ boost::asio::ip::make_address(worldHost, ec), worldPort }, ec);
+    if (ec) {
+        req::shared::logError("TestClient", "Failed to connect to world server: " + ec.message());
+        return false;
+    }
+    req::shared::logInfo("TestClient", "Connected to world server");
+    
+    // Build and send CharacterCreateRequest
+    std::string requestPayload = req::shared::protocol::buildCharacterCreateRequestPayload(
+        sessionToken, worldId, name, race, characterClass);
+    req::shared::logInfo("TestClient", std::string{"Sending CharacterCreateRequest: name="} + name + 
+        ", race=" + race + ", class=" + characterClass);
+    
+    if (!sendMessage(socket, req::shared::MessageType::CharacterCreateRequest, requestPayload)) {
+        return false;
+    }
+
+    // Receive and parse CharacterCreateResponse
+    req::shared::MessageHeader header;
+    std::string respBody;
+    if (!receiveMessage(socket, header, respBody)) {
+        return false;
+    }
+    
+    if (header.type != req::shared::MessageType::CharacterCreateResponse) {
+        req::shared::logError("TestClient", "Unexpected message type from world server");
+        return false;
+    }
+    
+    req::shared::protocol::CharacterCreateResponseData response;
+    if (!req::shared::protocol::parseCharacterCreateResponsePayload(respBody, response)) {
+        req::shared::logError("TestClient", "Failed to parse CharacterCreateResponse");
+        return false;
+    }
+    
+    if (!response.success) {
+        req::shared::logError("TestClient", std::string{"Character creation failed: "} + 
+            response.errorCode + " - " + response.errorMessage);
+        return false;
+    }
+    
+    outCharacter.characterId = response.characterId;
+    outCharacter.name = response.name;
+    outCharacter.race = response.race;
+    outCharacter.characterClass = response.characterClass;
+    outCharacter.level = response.level;
+    
+    return true;
+}
+
+bool TestClient::doEnterWorld(const std::string& worldHost,
+                              std::uint16_t worldPort,
+                              req::shared::SessionToken sessionToken,
+                              req::shared::WorldId worldId,
+                              std::uint64_t characterId,
+                              req::shared::HandoffToken& outHandoffToken,
+                              req::shared::ZoneId& outZoneId,
+                              std::string& outZoneHost,
+                              std::uint16_t& outZonePort) {
+    boost::asio::io_context io;
+    Tcp::socket socket(io);
+    boost::system::error_code ec;
+    
+    req::shared::logInfo("TestClient", std::string{"Connecting to world server at "} + 
+        worldHost + ":" + std::to_string(worldPort) + "...");
+    socket.connect({ boost::asio::ip::make_address(worldHost, ec), worldPort }, ec);
+    if (ec) {
+        req::shared::logError("TestClient", "Failed to connect to world server: " + ec.message());
+        return false;
+    }
+    req::shared::logInfo("TestClient", "Connected to world server");
+    
+    // Build and send EnterWorldRequest
+    std::string requestPayload = req::shared::protocol::buildEnterWorldRequestPayload(
+        sessionToken, worldId, characterId);
+    req::shared::logInfo("TestClient", std::string{"Sending EnterWorldRequest: sessionToken="} + 
+        std::to_string(sessionToken) + ", worldId=" + std::to_string(worldId) + 
+        ", characterId=" + std::to_string(characterId));
+    
+    if (!sendMessage(socket, req::shared::MessageType::EnterWorldRequest, requestPayload)) {
+        return false;
+    }
+
+    // Receive and parse EnterWorldResponse
+    req::shared::MessageHeader header;
+    std::string respBody;
+    if (!receiveMessage(socket, header, respBody)) {
+        return false;
+    }
+    
+    if (header.type != req::shared::MessageType::EnterWorldResponse) {
+        req::shared::logError("TestClient", "Unexpected message type from world server");
+        return false;
+    }
+    
+    req::shared::protocol::EnterWorldResponseData response;
+    if (!req::shared::protocol::parseEnterWorldResponsePayload(respBody, response)) {
+        req::shared::logError("TestClient", "Failed to parse EnterWorldResponse");
+        return false;
+    }
+    
+    if (!response.success) {
+        req::shared::logError("TestClient", std::string{"Enter world failed: "} + 
+            response.errorCode + " - " + response.errorMessage);
+        return false;
+    }
+    
+    outHandoffToken = response.handoffToken;
+    outZoneId = response.zoneId;
+    outZoneHost = response.zoneHost;
+    outZonePort = response.zonePort;
     
     return true;
 }

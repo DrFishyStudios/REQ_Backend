@@ -48,7 +48,11 @@ int main(int argc, char* argv[]) {
         req::shared::logInfo("Main", std::string{"  zones="} + std::to_string(config.zones.size()));
         req::shared::logInfo("Main", std::string{"  autoLaunchZones="} + (config.autoLaunchZones ? "true" : "false"));
 
-        req::world::WorldServer server(config);
+        // Initialize with CharacterStore path
+        const std::string charactersPath = "data/characters";
+        req::shared::logInfo("Main", std::string{"Using characters path: "} + charactersPath);
+
+        req::world::WorldServer server(config, charactersPath);
         server.run();
     } catch (const std::exception& ex) {
         req::shared::logError("Main", std::string("Fatal exception: ") + ex.what());
