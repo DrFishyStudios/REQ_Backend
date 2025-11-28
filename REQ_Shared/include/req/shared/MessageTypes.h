@@ -28,9 +28,13 @@ enum class MessageType : std::uint16_t {
     // Zone server handoff/authentication
     ZoneAuthRequest   = 30, // Client requests entry to zone with handoff token
     ZoneAuthResponse  = 31, // Zone server confirms access
+    
+    // Zone gameplay - Movement (server-authoritative model)
+    MovementIntent        = 40, // Client sends movement input to ZoneServer
+    PlayerStateSnapshot   = 41, // ZoneServer sends authoritative player states to client
 
     // Gameplay (initial placeholders)
-    PlayerState       = 100, // Snapshot of player state (TODO payload format)
+    PlayerState       = 100, // Snapshot of player state (DEPRECATED - use PlayerStateSnapshot)
     NpcSpawn          = 101, // NPC spawn info (TODO payload format)
     ChatMessage       = 102, // Chat channel or direct message (TODO payload format)
 };

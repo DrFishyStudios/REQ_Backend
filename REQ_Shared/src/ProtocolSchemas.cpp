@@ -669,4 +669,189 @@ bool parseEnterWorldResponsePayload(
     }
 }
 
+// ============================================================================
+// MovementIntent (client ? ZoneServer)
+// ============================================================================
+
+std::string buildMovementIntentPayload(
+    const MovementIntentData& data) {
+    std::ostringstream oss;
+    oss << data.characterId << '|'
+        << data.sequenceNumber << '|'
+        << data.inputX << '|'
+        << data.inputY << '|'
+        << data.facingYawDegrees << '|'
+        << (data.isJumpPressed ? 1 : 0) << '|'
+        << data.clientTimeMs;
+    return oss.str();
+}
+
+bool parseMovementIntentPayload(
+    const std::string& payload,
+    MovementIntentData& outData) {
+    auto tokens = split(payload, '|');
+    if (tokens.size() < 7) {
+        req::shared::logError("Protocol", "MovementIntent: expected 7 fields, got " + std::to_string(tokens.size()));
+        return false;
+    }
+    
+    // Parse characterId
+    if (!parseUInt(tokens[0], outData.characterId)) {
+        req::shared::logError("Protocol", "MovementIntent: failed to parse characterId");
+        return false;
+    }
+    
+    // Parse sequenceNumber
+    if (!parseUInt(tokens[1], outData.sequenceNumber)) {
+        req::shared::logError("Protocol", "MovementIntent: failed to parse sequenceNumber");
+        return false;
+    }
+    
+    // Parse inputX
+    try {
+        outData.inputX = std::stof(tokens[2]);
+    } catch (...) {
+        req::shared::logError("Protocol", "MovementIntent: failed to parse inputX");
+        return false;
+    }
+    
+    // Parse inputY
+    try {
+        outData.inputY = std::stof(tokens[3]);
+    } catch (...) {
+        req::shared::logError("Protocol", "MovementIntent: failed to parse inputY");
+        return false;
+    }
+    
+    // Parse facingYawDegrees
+    try {
+        outData.facingYawDegrees = std::stof(tokens[4]);
+    } catch (...) {
+        req::shared::logError("Protocol", "MovementIntent: failed to parse facingYawDegrees");
+        return false;
+    }
+    
+    // Parse isJumpPressed (0 or 1)
+    std::uint32_t jumpValue = 0;
+    if (!parseUInt(tokens[5], jumpValue)) {
+        req::shared::logError("Protocol", "MovementIntent: failed to parse isJumpPressed");
+        return false;
+    }
+    outData.isJumpPressed = (jumpValue != 0);
+    
+    // Parse clientTimeMs
+    if (!parseUInt(tokens[6], outData.clientTimeMs)) {
+        req::shared::logError("Protocol", "MovementIntent: failed to parse clientTimeMs");
+        return false;
+    }
+    
+    return true;
+}
+
+// ============================================================================
+// PlayerStateSnapshot (ZoneServer ? client)
+// ============================================================================
+
+std::string buildPlayerStateSnapshotPayload(
+    const PlayerStateSnapshotData& data) {
+    std::ostringstream oss;
+    oss << data.snapshotId << '|' << data.players.size();
+    
+    for (const auto& player : data.players) {
+        oss << '|' << player.characterId << ','
+            << player.posX << ','
+            << player.posY << ','
+            << player.posZ << ','
+            << player.velX << ','
+            << player.velY << ','
+            << player.velZ << ','
+            << player.yawDegrees;
+    }
+    
+    return oss.str();
+}
+
+bool parsePlayerStateSnapshotPayload(
+    const std::string& payload,
+    PlayerStateSnapshotData& outData) {
+    auto tokens = split(payload, '|');
+    if (tokens.size() < 2) {
+        req::shared::logError("Protocol", "PlayerStateSnapshot: expected at least 2 fields, got " + std::to_string(tokens.size()));
+        return false;
+    }
+    
+    // Parse snapshotId
+    if (!parseUInt(tokens[0], outData.snapshotId)) {
+        req::shared::logError("Protocol", "PlayerStateSnapshot: failed to parse snapshotId");
+        return false;
+    }
+    
+    // Parse playerCount
+    std::size_t playerCount = 0;
+    if (!parseUInt(tokens[1], playerCount)) {
+        req::shared::logError("Protocol", "PlayerStateSnapshot: failed to parse playerCount");
+        return false;
+    }
+    
+    // Check if we have the expected number of player entries
+    std::size_t actualPlayerCount = tokens.size() - 2;
+    if (actualPlayerCount != playerCount) {
+        req::shared::logWarn("Protocol", std::string{"PlayerStateSnapshot: playerCount mismatch - expected "} +
+            std::to_string(playerCount) + ", got " + std::to_string(actualPlayerCount) + " entries");
+        // Continue parsing with actual count (tolerant approach)
+    }
+    
+    // Parse each player entry
+    outData.players.clear();
+    for (std::size_t i = 2; i < tokens.size(); ++i) {
+        auto playerTokens = split(tokens[i], ',');
+        if (playerTokens.size() < 8) {
+            req::shared::logError("Protocol", std::string{"PlayerStateSnapshot: player entry "} + 
+                std::to_string(i - 2) + " malformed (expected 8 fields, got " + 
+                std::to_string(playerTokens.size()) + ")");
+            return false;
+        }
+        
+        PlayerStateEntry entry;
+        
+        // Parse characterId
+        if (!parseUInt(playerTokens[0], entry.characterId)) {
+            req::shared::logError("Protocol", "PlayerStateSnapshot: failed to parse player characterId");
+            return false;
+        }
+        
+        // Parse position (posX, posY, posZ)
+        try {
+            entry.posX = std::stof(playerTokens[1]);
+            entry.posY = std::stof(playerTokens[2]);
+            entry.posZ = std::stof(playerTokens[3]);
+        } catch (...) {
+            req::shared::logError("Protocol", "PlayerStateSnapshot: failed to parse player position");
+            return false;
+        }
+        
+        // Parse velocity (velX, velY, velZ)
+        try {
+            entry.velX = std::stof(playerTokens[4]);
+            entry.velY = std::stof(playerTokens[5]);
+            entry.velZ = std::stof(playerTokens[6]);
+        } catch (...) {
+            req::shared::logError("Protocol", "PlayerStateSnapshot: failed to parse player velocity");
+            return false;
+        }
+        
+        // Parse yawDegrees
+        try {
+            entry.yawDegrees = std::stof(playerTokens[7]);
+        } catch (...) {
+            req::shared::logError("Protocol", "PlayerStateSnapshot: failed to parse player yawDegrees");
+            return false;
+        }
+        
+        outData.players.push_back(entry);
+    }
+    
+    return true;
+}
+
 } // namespace req::shared::protocol
