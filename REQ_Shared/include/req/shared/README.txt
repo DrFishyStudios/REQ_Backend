@@ -1,0 +1,1 @@
+Skeleton headers for REQ_Shared base library. C++20, x64. No real logic implemented yet.
