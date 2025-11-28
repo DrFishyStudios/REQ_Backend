@@ -10,8 +10,10 @@
 namespace req::login {
 
 LoginServer::LoginServer(const req::shared::LoginConfig& config,
-                         const req::shared::WorldListConfig& worldList)
-    : acceptor_(ioContext_), config_(config), worlds_(worldList.worlds) {
+                         const req::shared::WorldListConfig& worldList,
+                         const std::string& accountsPath)
+    : acceptor_(ioContext_), config_(config), worlds_(worldList.worlds), 
+      accountStore_(accountsPath) {
     using boost::asio::ip::tcp;
     boost::system::error_code ec;
     tcp::endpoint endpoint(boost::asio::ip::make_address(config_.address, ec), config_.port);
@@ -27,9 +29,10 @@ LoginServer::LoginServer(const req::shared::LoginConfig& config,
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) { req::shared::logError("login", std::string{"acceptor listen failed: "} + ec.message()); }
     
-    // Log world list on construction
+    // Log initialization
     req::shared::logInfo("login", std::string{"LoginServer initialized with "} + 
         std::to_string(worlds_.size()) + " world(s)");
+    req::shared::logInfo("login", std::string{"Accounts path: "} + accountsPath);
 }
 
 void LoginServer::run() {
@@ -79,8 +82,16 @@ req::shared::SessionToken LoginServer::generateSessionToken() {
     req::shared::SessionToken token = 0;
     do {
         token = dist(rng);
-    } while (token == req::shared::InvalidSessionToken || sessions_.count(token) != 0);
+    } while (token == req::shared::InvalidSessionToken || sessionTokenToAccountId_.count(token) != 0);
     return token;
+}
+
+std::optional<std::uint64_t> LoginServer::findAccountIdForSessionToken(req::shared::SessionToken token) const {
+    auto it = sessionTokenToAccountId_.find(token);
+    if (it != sessionTokenToAccountId_.end()) {
+        return it->second;
+    }
+    return std::nullopt;
 }
 
 void LoginServer::handleMessage(const req::shared::MessageHeader& header,
@@ -104,7 +115,9 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
     switch (header.type) {
     case req::shared::MessageType::LoginRequest: {
         std::string username, password, clientVersion;
-        if (!req::shared::protocol::parseLoginRequestPayload(body, username, password, clientVersion)) {
+        req::shared::protocol::LoginMode mode;
+        
+        if (!req::shared::protocol::parseLoginRequestPayload(body, username, password, clientVersion, mode)) {
             req::shared::logError("login", "Failed to parse LoginRequest payload");
             auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("PARSE_ERROR", "Malformed login request");
             req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
@@ -113,20 +126,92 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
         }
 
         req::shared::logInfo("login", std::string{"LoginRequest: username="} + username + 
-            ", clientVersion=" + clientVersion);
+            ", clientVersion=" + clientVersion + 
+            ", mode=" + (mode == req::shared::protocol::LoginMode::Register ? "register" : "login"));
 
-        // TODO: Proper authentication checks (database lookup, password hash verification)
-        // For now, accept any non-empty username
+        // Validate username
         if (username.empty()) {
             req::shared::logWarn("login", "Login rejected: empty username");
-            auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("AUTH_FAILED", "Username cannot be empty");
+            auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("INVALID_USERNAME", "Username cannot be empty");
             req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
             connection->send(req::shared::MessageType::LoginResponse, errBytes);
             return;
         }
 
+        std::uint64_t accountId = 0;
+
+        // Handle registration mode
+        if (mode == req::shared::protocol::LoginMode::Register) {
+            // Check if account already exists
+            auto existingAccount = accountStore_.findByUsername(username);
+            if (existingAccount.has_value()) {
+                req::shared::logWarn("login", std::string{"Registration failed: username '"} + username + "' already exists");
+                auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("USERNAME_TAKEN", "An account with that username already exists");
+                req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+                connection->send(req::shared::MessageType::LoginResponse, errBytes);
+                return;
+            }
+
+            // Create new account
+            try {
+                auto newAccount = accountStore_.createAccount(username, password);
+                accountId = newAccount.accountId;
+                
+                req::shared::logInfo("login", std::string{"Registration successful: username="} + username + 
+                    ", accountId=" + std::to_string(accountId));
+            } catch (const std::exception& e) {
+                req::shared::logError("login", std::string{"Account creation failed: "} + e.what());
+                auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("REGISTRATION_FAILED", "Failed to create account");
+                req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+                connection->send(req::shared::MessageType::LoginResponse, errBytes);
+                return;
+            }
+        } 
+        // Handle login mode
+        else {
+            // Find account by username
+            auto account = accountStore_.findByUsername(username);
+            if (!account.has_value()) {
+                req::shared::logWarn("login", std::string{"Login failed: account not found for username '"} + username + "'");
+                auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("ACCOUNT_NOT_FOUND", "Invalid username or password");
+                req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+                connection->send(req::shared::MessageType::LoginResponse, errBytes);
+                return;
+            }
+
+            // Verify password (using the same placeholder hash function from AccountStore)
+            // TODO: This is a simplified approach - in production, use proper password verification
+            std::hash<std::string> hasher;
+            std::size_t hashValue = hasher(password + "_salt_placeholder");
+            std::ostringstream expectedHashStream;
+            expectedHashStream << "PLACEHOLDER_HASH_" << hashValue;
+            std::string expectedHash = expectedHashStream.str();
+
+            if (account->passwordHash != expectedHash) {
+                req::shared::logWarn("login", std::string{"Login failed: invalid password for username '"} + username + "'");
+                auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("INVALID_PASSWORD", "Invalid username or password");
+                req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+                connection->send(req::shared::MessageType::LoginResponse, errBytes);
+                return;
+            }
+
+            // Check if account is banned
+            if (account->isBanned) {
+                req::shared::logWarn("login", std::string{"Login failed: account banned for username '"} + username + "'");
+                auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("ACCOUNT_BANNED", "This account has been banned");
+                req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+                connection->send(req::shared::MessageType::LoginResponse, errBytes);
+                return;
+            }
+
+            accountId = account->accountId;
+            req::shared::logInfo("login", std::string{"Login successful: username="} + username + 
+                ", accountId=" + std::to_string(accountId));
+        }
+
+        // Generate session token and map to accountId
         auto token = generateSessionToken();
-        sessions_[token] = username;
+        sessionTokenToAccountId_[token] = accountId;
 
         // Build world list from worlds_ (loaded from worlds.json)
         std::vector<req::shared::protocol::WorldListEntry> worldEntries;
@@ -145,6 +230,7 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
         connection->send(req::shared::MessageType::LoginResponse, respBytes);
 
         req::shared::logInfo("login", std::string{"LoginResponse OK: username="} + username + 
+            ", accountId=" + std::to_string(accountId) +
             ", sessionToken=" + std::to_string(token) + 
             ", worldCount=" + std::to_string(worldEntries.size()));
         

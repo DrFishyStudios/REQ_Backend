@@ -22,7 +22,11 @@ int main() {
         req::shared::logInfo("Main", std::string{"WorldList loaded: "} +
                                    std::to_string(worldList.worlds.size()) + " world(s) available");
 
-        req::login::LoginServer server(config, worldList);
+        // Initialize with AccountStore path
+        const std::string accountsPath = "data/accounts";
+        req::shared::logInfo("Main", std::string{"Using accounts path: "} + accountsPath);
+
+        req::login::LoginServer server(config, worldList, accountsPath);
         server.run();
     } catch (const std::exception& ex) {
         req::shared::logError("Main", std::string("Fatal exception: ") + ex.what());

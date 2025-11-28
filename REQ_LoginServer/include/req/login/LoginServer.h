@@ -14,13 +14,15 @@
 #include "../../REQ_Shared/include/req/shared/MessageHeader.h"
 #include "../../REQ_Shared/include/req/shared/Connection.h"
 #include "../../REQ_Shared/include/req/shared/Config.h"
+#include "../../REQ_Shared/include/req/shared/AccountStore.h"
 
 namespace req::login {
 
 class LoginServer {
 public:
     explicit LoginServer(const req::shared::LoginConfig& config,
-                         const req::shared::WorldListConfig& worldList);
+                         const req::shared::WorldListConfig& worldList,
+                         const std::string& accountsPath = "data/accounts");
 
     void run();
     void stop();
@@ -37,15 +39,22 @@ private:
                        ConnectionPtr connection);
 
     req::shared::SessionToken generateSessionToken();
+    
+    std::optional<std::uint64_t> findAccountIdForSessionToken(req::shared::SessionToken token) const;
 
     boost::asio::io_context ioContext_{};
     Tcp::acceptor            acceptor_;
 
     std::vector<ConnectionPtr> connections_;
-    std::unordered_map<req::shared::SessionToken, std::string> sessions_;
+    
+    // Session mapping: sessionToken -> accountId
+    std::unordered_map<req::shared::SessionToken, std::uint64_t> sessionTokenToAccountId_;
 
     req::shared::LoginConfig config_{};
     std::vector<req::shared::LoginWorldEntry> worlds_{};
+    
+    // Account persistence
+    req::shared::AccountStore accountStore_;
 };
 
 } // namespace req::login

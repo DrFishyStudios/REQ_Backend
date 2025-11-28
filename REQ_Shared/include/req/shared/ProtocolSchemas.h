@@ -19,6 +19,15 @@
 namespace req::shared::protocol {
 
 // ============================================================================
+// Enums
+// ============================================================================
+
+enum class LoginMode {
+    Login,
+    Register
+};
+
+// ============================================================================
 // Data Structures for Parsed Payloads
 // ============================================================================
 
@@ -74,25 +83,29 @@ struct ZoneAuthResponseData {
 /*
  * LoginRequest (client ? LoginServer)
  * 
- * Payload format: username|password|clientVersion
+ * Payload format: username|password|clientVersion|mode
  * 
  * Fields:
  *   - username: player account username
  *   - password: player account password (plaintext for now, TODO: hash)
  *   - clientVersion: client version string for compatibility checks
+ *   - mode: "login" or "register" (defaults to "login" if omitted)
  * 
- * Example: "player1|mypassword|0.1.0"
+ * Example: "player1|mypassword|0.1.0|login"
+ * Example: "newuser|newpass|0.1.0|register"
  */
 std::string buildLoginRequestPayload(
     const std::string& username,
     const std::string& password,
-    const std::string& clientVersion);
+    const std::string& clientVersion,
+    LoginMode mode = LoginMode::Login);
 
 bool parseLoginRequestPayload(
     const std::string& payload,
     std::string& outUsername,
     std::string& outPassword,
-    std::string& outClientVersion);
+    std::string& outClientVersion,
+    LoginMode& outMode);
 
 /*
  * LoginResponse (LoginServer ? client)

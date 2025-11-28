@@ -46,9 +46,11 @@ namespace {
 std::string buildLoginRequestPayload(
     const std::string& username,
     const std::string& password,
-    const std::string& clientVersion) {
+    const std::string& clientVersion,
+    LoginMode mode) {
     std::ostringstream oss;
-    oss << username << '|' << password << '|' << clientVersion;
+    oss << username << '|' << password << '|' << clientVersion << '|';
+    oss << (mode == LoginMode::Register ? "register" : "login");
     return oss.str();
 }
 
@@ -56,15 +58,31 @@ bool parseLoginRequestPayload(
     const std::string& payload,
     std::string& outUsername,
     std::string& outPassword,
-    std::string& outClientVersion) {
+    std::string& outClientVersion,
+    LoginMode& outMode) {
     auto tokens = split(payload, '|');
     if (tokens.size() < 3) {
-        req::shared::logError("Protocol", "LoginRequest: expected 3 fields, got " + std::to_string(tokens.size()));
+        req::shared::logError("Protocol", "LoginRequest: expected at least 3 fields, got " + std::to_string(tokens.size()));
         return false;
     }
     outUsername = tokens[0];
     outPassword = tokens[1];
     outClientVersion = tokens[2];
+    
+    // Mode field is optional for backward compatibility - defaults to "login"
+    if (tokens.size() >= 4) {
+        if (tokens[3] == "register") {
+            outMode = LoginMode::Register;
+        } else if (tokens[3] == "login") {
+            outMode = LoginMode::Login;
+        } else {
+            req::shared::logWarn("Protocol", "LoginRequest: unknown mode '" + tokens[3] + "', defaulting to login");
+            outMode = LoginMode::Login;
+        }
+    } else {
+        outMode = LoginMode::Login;
+    }
+    
     return true;
 }
 
