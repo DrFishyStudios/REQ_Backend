@@ -8,14 +8,28 @@
 int main() {
     try {
         req::shared::initLogger("REQ_LoginServer");
+        req::shared::logInfo("Main", "Loading configuration...");
+
         auto config = req::shared::loadLoginConfig("config/login_config.json");
-        req::login::LoginServer server(config);
+
+        req::shared::logInfo("Main", std::string{"LoginConfig loaded: address="} +
+                                   config.address + ", port=" + std::to_string(config.port));
+
+        // Load world list
+        req::shared::logInfo("Main", "Loading world list...");
+        auto worldList = req::shared::loadWorldListConfig("config/worlds.json");
+
+        req::shared::logInfo("Main", std::string{"WorldList loaded: "} +
+                                   std::to_string(worldList.worlds.size()) + " world(s) available");
+
+        req::login::LoginServer server(config, worldList);
         server.run();
     } catch (const std::exception& ex) {
-        req::shared::logError("Main", std::string("Exception in main: ") + ex.what());
+        req::shared::logError("Main", std::string("Fatal exception: ") + ex.what());
+        req::shared::logError("Main", "LoginServer cannot start. Check configuration and try again.");
         return 1;
     } catch (...) {
-        req::shared::logError("Main", "Unknown exception in main.");
+        req::shared::logError("Main", "Unknown fatal exception occurred.");
         return 1;
     }
     return 0;

@@ -36,6 +36,10 @@ private:
                        ConnectionPtr connection);
 
     req::shared::HandoffToken generateHandoffToken();
+    
+    // Auto-launch functionality
+    void launchConfiguredZones();
+    bool spawnZoneProcess(const req::shared::WorldZoneConfig& zone);
 
     boost::asio::io_context ioContext_{};
     Tcp::acceptor           acceptor_;

@@ -1,0 +1,40 @@
+{
+  "ruleset_id": "classic_plus_qol",
+  "display_name": "Classic Norrath + QoL",
+  "description": "Classic EverQuest-inspired pacing with modest XP, corpse runs, and optional UI helpers like con colors and quest tracking.",
+  "xp": {
+    "base_rate": 1.0,
+    "group_bonus_per_member": 0.1,
+    "hot_zone_multiplier_default": 1.0
+  },
+  "loot": {
+    "drop_rate_multiplier": 1.0,
+    "coin_rate_multiplier": 1.0,
+    "rare_drop_multiplier": 1.0
+  },
+  "death": {
+    "xp_loss_multiplier": 1.0,
+    "corpse_runs": true,
+    "corpse_decay_minutes": 1440
+  },
+  "pvp": {
+    "enabled": false,
+    "rules": "none"
+  },
+  "qol": {
+    "con_outlines_enabled": true,
+    "faction_color_pulses_enabled": true,
+    "minimap_enabled": true,
+    "quest_tracker_enabled": true,
+    "corpse_arrow_enabled": true
+  },
+  "hot_zones": [
+    {
+      "zone_id": 20,
+      "xp_multiplier": 1.5,
+      "loot_multiplier": 1.2,
+      "start_date": null,
+      "end_date": null
+    }
+  ]
+}

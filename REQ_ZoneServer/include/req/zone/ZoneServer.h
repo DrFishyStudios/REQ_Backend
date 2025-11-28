@@ -18,9 +18,11 @@ namespace req::zone {
 
 class ZoneServer {
 public:
-    ZoneServer(const std::string& address,
-               std::uint16_t port,
-               req::shared::ZoneId zoneId);
+    ZoneServer(std::uint32_t worldId,
+               std::uint32_t zoneId,
+               const std::string& zoneName,
+               const std::string& address,
+               std::uint16_t port);
 
     void run();
     void stop();
@@ -38,9 +40,13 @@ private:
 
     boost::asio::io_context  ioContext_{};
     Tcp::acceptor            acceptor_;
-    std::vector<ConnectionPtr> connections_;
+    std::vector<ConnectionPtr> connections_{};
 
-    req::shared::ZoneId      zoneId_{};
+    std::uint32_t            worldId_{};
+    std::uint32_t            zoneId_{};
+    std::string              zoneName_{};
+    std::string              address_{};
+    std::uint16_t            port_{};
 };
 
 } // namespace req::zone

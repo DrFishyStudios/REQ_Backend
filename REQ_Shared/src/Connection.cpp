@@ -1,4 +1,5 @@
 #include "../include/req/shared/Connection.h"
+#include "../include/req/shared/MessageHeader.h"
 
 #include <array>
 
@@ -32,6 +33,16 @@ void Connection::doReadHeader() {
                 req::shared::logWarn("net", "Partial header read; closing connection");
                 self->close();
                 return;
+            }
+
+            // Check protocol version
+            if (self->incomingHeader_.protocolVersion != req::shared::CurrentProtocolVersion) {
+                req::shared::logWarn("net", 
+                    std::string{"Protocol version mismatch: received "} + 
+                    std::to_string(self->incomingHeader_.protocolVersion) +
+                    ", expected " + std::to_string(req::shared::CurrentProtocolVersion));
+                // TODO: In the future, enforce strict version matching and disconnect
+                // For now, continue processing the message
             }
 
             if (self->incomingHeader_.payloadSize > 0) {
@@ -78,6 +89,7 @@ void Connection::doReadBody() {
 
 void Connection::send(req::shared::MessageType type, const ByteArray& payload, std::uint64_t reserved) {
     OutgoingMessage msg;
+    msg.header.protocolVersion = req::shared::CurrentProtocolVersion; // Set protocol version on send
     msg.header.type = type;
     msg.header.payloadSize = static_cast<std::uint32_t>(payload.size());
     msg.header.reserved = reserved;

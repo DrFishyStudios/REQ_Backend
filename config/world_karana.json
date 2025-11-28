@@ -1,0 +1,34 @@
+{
+  "world_id": 2,
+  "world_name": "Karana",
+  "address": "0.0.0.0",
+  "port": 7780,
+  "ruleset_id": "classic_hardcore",
+  "auto_launch_zones": true,
+  "zones": [
+    {
+      "zone_id": 40,
+      "zone_name": "Qeynos Hills",
+      "host": "127.0.0.1",
+      "port": 7100,
+      "executable_path": "./REQ_ZoneServer.exe",
+      "args": [
+        "--world_id=2",
+        "--zone_id=40",
+        "--port=7100"
+      ]
+    },
+    {
+      "zone_id": 50,
+      "zone_name": "West Karana",
+      "host": "127.0.0.1",
+      "port": 7101,
+      "executable_path": "./REQ_ZoneServer.exe",
+      "args": [
+        "--world_id=2",
+        "--zone_id=50",
+        "--port=7101"
+      ]
+    }
+  ]
+}

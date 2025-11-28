@@ -19,7 +19,8 @@ namespace req::login {
 
 class LoginServer {
 public:
-    explicit LoginServer(const req::shared::LoginConfig& config);
+    explicit LoginServer(const req::shared::LoginConfig& config,
+                         const req::shared::WorldListConfig& worldList);
 
     void run();
     void stop();
@@ -44,6 +45,7 @@ private:
     std::unordered_map<req::shared::SessionToken, std::string> sessions_;
 
     req::shared::LoginConfig config_{};
+    std::vector<req::shared::LoginWorldEntry> worlds_{};
 };
 
 } // namespace req::login

@@ -1,0 +1,46 @@
+{
+  "world_id": 1,
+  "world_name": "CazicThule",
+  "address": "0.0.0.0",
+  "port": 7778,
+  "ruleset_id": "classic_plus_qol",
+  "auto_launch_zones": true,
+  "zones": [
+    {
+      "zone_id": 10,
+      "zone_name": "East Freeport",
+      "host": "127.0.0.1",
+      "port": 7000,
+      "executable_path": "./REQ_ZoneServer.exe",
+      "args": [
+        "--world_id=1",
+        "--zone_id=10",
+        "--port=7000"
+      ]
+    },
+    {
+      "zone_id": 20,
+      "zone_name": "North Ro",
+      "host": "127.0.0.1",
+      "port": 7001,
+      "executable_path": "./REQ_ZoneServer.exe",
+      "args": [
+        "--world_id=1",
+        "--zone_id=20",
+        "--port=7001"
+      ]
+    },
+    {
+      "zone_id": 30,
+      "zone_name": "Nektulos Forest",
+      "host": "127.0.0.1",
+      "port": 7002,
+      "executable_path": "./REQ_ZoneServer.exe",
+      "args": [
+        "--world_id=1",
+        "--zone_id=30",
+        "--port=7002"
+      ]
+    }
+  ]
+}

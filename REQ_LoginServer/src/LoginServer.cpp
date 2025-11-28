@@ -1,15 +1,17 @@
 #include "../include/req/login/LoginServer.h"
 
 #include <random>
-#include <sstream>
 #include <limits>
 
 #include "../../REQ_Shared/include/req/shared/Logger.h"
+#include "../../REQ_Shared/include/req/shared/MessageHeader.h"
+#include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
 
 namespace req::login {
 
-LoginServer::LoginServer(const req::shared::LoginConfig& config)
-    : acceptor_(ioContext_), config_(config) {
+LoginServer::LoginServer(const req::shared::LoginConfig& config,
+                         const req::shared::WorldListConfig& worldList)
+    : acceptor_(ioContext_), config_(config), worlds_(worldList.worlds) {
     using boost::asio::ip::tcp;
     boost::system::error_code ec;
     tcp::endpoint endpoint(boost::asio::ip::make_address(config_.address, ec), config_.port);
@@ -24,10 +26,17 @@ LoginServer::LoginServer(const req::shared::LoginConfig& config)
     if (ec) { req::shared::logError("login", std::string{"acceptor bind failed: "} + ec.message()); }
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) { req::shared::logError("login", std::string{"acceptor listen failed: "} + ec.message()); }
+    
+    // Log world list on construction
+    req::shared::logInfo("login", std::string{"LoginServer initialized with "} + 
+        std::to_string(worlds_.size()) + " world(s)");
 }
 
 void LoginServer::run() {
     req::shared::logInfo("login", "LoginServer starting on " + config_.address + ":" + std::to_string(config_.port));
+    if (!config_.motd.empty()) {
+        req::shared::logInfo("login", "MOTD: " + config_.motd);
+    }
     startAccept();
     ioContext_.run();
 }
@@ -77,33 +86,80 @@ req::shared::SessionToken LoginServer::generateSessionToken() {
 void LoginServer::handleMessage(const req::shared::MessageHeader& header,
                                 const req::shared::net::Connection::ByteArray& payload,
                                 ConnectionPtr connection) {
+    // Log protocol version
+    req::shared::logInfo("login", std::string{"Received message: type="} + 
+        std::to_string(static_cast<int>(header.type)) + 
+        ", protocolVersion=" + std::to_string(header.protocolVersion) +
+        ", payloadSize=" + std::to_string(header.payloadSize));
+
+    // Check protocol version
+    if (header.protocolVersion != req::shared::CurrentProtocolVersion) {
+        req::shared::logWarn("login", std::string{"Protocol version mismatch: client="} + 
+            std::to_string(header.protocolVersion) + ", server=" + std::to_string(req::shared::CurrentProtocolVersion));
+        // TODO: In future, enforce strict version matching
+    }
+
     std::string body(payload.begin(), payload.end());
+
     switch (header.type) {
     case req::shared::MessageType::LoginRequest: {
-        // Expected format: username|password
-        auto sepPos = body.find('|');
-        std::string username;
-        std::string password;
-        if (sepPos != std::string::npos) {
-            username = body.substr(0, sepPos);
-            password = body.substr(sepPos + 1);
-        } else {
-            username = body; // whole string
+        std::string username, password, clientVersion;
+        if (!req::shared::protocol::parseLoginRequestPayload(body, username, password, clientVersion)) {
+            req::shared::logError("login", "Failed to parse LoginRequest payload");
+            auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("PARSE_ERROR", "Malformed login request");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::LoginResponse, errBytes);
+            return;
         }
-        // TODO: Proper authentication checks
+
+        req::shared::logInfo("login", std::string{"LoginRequest: username="} + username + 
+            ", clientVersion=" + clientVersion);
+
+        // TODO: Proper authentication checks (database lookup, password hash verification)
+        // For now, accept any non-empty username
+        if (username.empty()) {
+            req::shared::logWarn("login", "Login rejected: empty username");
+            auto errPayload = req::shared::protocol::buildLoginResponseErrorPayload("AUTH_FAILED", "Username cannot be empty");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::LoginResponse, errBytes);
+            return;
+        }
+
         auto token = generateSessionToken();
         sessions_[token] = username;
 
-        std::ostringstream oss;
-        oss << "OK|" << token << '|' << config_.worldHost << '|' << config_.worldPort << "|Welcome to REQ";
-        std::string resp = oss.str();
-        req::shared::net::Connection::ByteArray respBytes(resp.begin(), resp.end());
+        // Build world list from worlds_ (loaded from worlds.json)
+        std::vector<req::shared::protocol::WorldListEntry> worldEntries;
+        for (const auto& world : worlds_) {
+            req::shared::protocol::WorldListEntry entry;
+            entry.worldId = world.worldId;
+            entry.worldName = world.worldName;
+            entry.worldHost = world.host;
+            entry.worldPort = world.port;
+            entry.rulesetId = world.rulesetId;
+            worldEntries.push_back(entry);
+        }
+
+        auto respPayload = req::shared::protocol::buildLoginResponseOkPayload(token, worldEntries);
+        req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
         connection->send(req::shared::MessageType::LoginResponse, respBytes);
-        req::shared::logInfo("login", "LoginRequest processed for user=" + username);
+
+        req::shared::logInfo("login", std::string{"LoginResponse OK: username="} + username + 
+            ", sessionToken=" + std::to_string(token) + 
+            ", worldCount=" + std::to_string(worldEntries.size()));
+        
+        // Log each world for debugging
+        for (const auto& world : worldEntries) {
+            req::shared::logInfo("login", std::string{"  World: id="} + std::to_string(world.worldId) + 
+                ", name=" + world.worldName + 
+                ", endpoint=" + world.worldHost + ":" + std::to_string(world.worldPort) +
+                ", ruleset=" + world.rulesetId);
+        }
         break;
     }
     default:
-        req::shared::logWarn("login", "Unsupported message type received");
+        req::shared::logWarn("login", std::string{"Unsupported message type: "} + 
+            std::to_string(static_cast<int>(header.type)));
         break;
     }
 }
