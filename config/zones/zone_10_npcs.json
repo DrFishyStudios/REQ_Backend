@@ -1,0 +1,74 @@
+{
+  "npcs": [
+    {
+      "npc_id": 1001,
+      "name": "A Decaying Skeleton",
+      "level": 1,
+      "max_hp": 20,
+      "min_damage": 1,
+      "max_damage": 3,
+      "pos_x": 100.0,
+      "pos_y": 50.0,
+      "pos_z": 0.0,
+      "facing_degrees": 0.0,
+      "aggro_radius": 10.0,
+      "leash_radius": 50.0
+    },
+    {
+      "npc_id": 1002,
+      "name": "A Rat",
+      "level": 1,
+      "max_hp": 10,
+      "min_damage": 1,
+      "max_damage": 2,
+      "pos_x": 200.0,
+      "pos_y": 75.0,
+      "pos_z": 0.0,
+      "facing_degrees": 90.0,
+      "aggro_radius": 8.0,
+      "leash_radius": 40.0
+    },
+    {
+      "npc_id": 1003,
+      "name": "A Fire Beetle",
+      "level": 2,
+      "max_hp": 30,
+      "min_damage": 2,
+      "max_damage": 5,
+      "pos_x": 150.0,
+      "pos_y": 120.0,
+      "pos_z": 0.0,
+      "facing_degrees": 180.0,
+      "aggro_radius": 12.0,
+      "leash_radius": 60.0
+    },
+    {
+      "npc_id": 1004,
+      "name": "A Snake",
+      "level": 1,
+      "max_hp": 15,
+      "min_damage": 1,
+      "max_damage": 4,
+      "pos_x": 50.0,
+      "pos_y": 200.0,
+      "pos_z": 0.0,
+      "facing_degrees": 270.0,
+      "aggro_radius": 10.0,
+      "leash_radius": 50.0
+    },
+    {
+      "npc_id": 1005,
+      "name": "A Zombie",
+      "level": 3,
+      "max_hp": 50,
+      "min_damage": 3,
+      "max_damage": 7,
+      "pos_x": 300.0,
+      "pos_y": 150.0,
+      "pos_z": 0.0,
+      "facing_degrees": 45.0,
+      "aggro_radius": 15.0,
+      "leash_radius": 70.0
+    }
+  ]
+}

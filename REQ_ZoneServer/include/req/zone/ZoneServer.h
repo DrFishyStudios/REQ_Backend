@@ -15,6 +15,7 @@
 #include "../../REQ_Shared/include/req/shared/Connection.h"
 #include "../../REQ_Shared/include/req/shared/Config.h"
 #include "../../REQ_Shared/include/req/shared/CharacterStore.h"
+#include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
 
 namespace req::zone {
 
@@ -22,7 +23,7 @@ namespace req::zone {
  * ZonePlayer
  * 
  * In-memory state for a player currently active in this zone.
- * Tracks position, velocity, last input, and validation data.
+ * Tracks position, velocity, last input, validation data, and combat state.
  */
 struct ZonePlayer {
     std::uint64_t accountId{ 0 };          // Account owner
@@ -51,9 +52,26 @@ struct ZonePlayer {
     bool isJumpPressed{ false };
     std::uint32_t lastSequenceNumber{ 0 };
     
+    // Combat state (loaded from character, persisted on zone exit)
+    std::int32_t level{ 1 };
+    std::int32_t hp{ 100 };
+    std::int32_t maxHp{ 100 };
+    std::int32_t mana{ 100 };
+    std::int32_t maxMana{ 100 };
+    
+    // Primary stats (EQ-classic style)
+    std::int32_t strength{ 75 };
+    std::int32_t stamina{ 75 };
+    std::int32_t agility{ 75 };
+    std::int32_t dexterity{ 75 };
+    std::int32_t intelligence{ 75 };
+    std::int32_t wisdom{ 75 };
+    std::int32_t charisma{ 75 };
+    
     // Simple flags
     bool isInitialized{ false };
     bool isDirty{ false };  // Position changed since last save
+    bool combatStatsDirty{ false };  // Combat stats changed (HP/mana)
 };
 
 // Use shared ZoneConfig from Config.h (no duplicate definition needed)
@@ -92,6 +110,15 @@ private:
     void savePlayerPosition(std::uint64_t characterId);
     void saveAllPlayerPositions();
     
+    // NPC management
+    void loadNpcsForZone();
+    void updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds);
+    
+    // Combat
+    void processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc& target, 
+                      const req::shared::protocol::AttackRequestData& request);
+    void broadcastAttackResult(const req::shared::protocol::AttackResultData& result);
+    
     // Player disconnect handling
     void removePlayer(std::uint64_t characterId);
     void onConnectionClosed(ConnectionPtr connection);
@@ -128,6 +155,9 @@ private:
     std::uint64_t snapshotCounter_{ 0 };
     std::unordered_map<std::uint64_t, ZonePlayer> players_;
     std::unordered_map<ConnectionPtr, std::uint64_t> connectionToCharacterId_;
+    
+    // NPCs in this zone
+    std::unordered_map<std::uint64_t, req::shared::data::ZoneNpc> npcs_;
 };
 
 } // namespace req::zone

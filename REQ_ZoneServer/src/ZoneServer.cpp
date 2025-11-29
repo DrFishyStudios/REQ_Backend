@@ -2,11 +2,14 @@
 
 #include <cmath>
 #include <algorithm>
+#include <fstream>
+#include <random>
 
 #include "../../REQ_Shared/include/req/shared/Logger.h"
 #include "../../REQ_Shared/include/req/shared/MessageHeader.h"
 #include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
 #include "../../REQ_Shared/include/req/shared/DataModels.h"
+#include "../../REQ_Shared/thirdparty/nlohmann/json.hpp"
 
 namespace req::zone {
 
@@ -94,11 +97,108 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     req::shared::logInfo("zone", std::string{"  interestRadius="} + std::to_string(zoneConfig_.interestRadius));
 }
 
+void ZoneServer::loadNpcsForZone() {
+    // Construct NPC config file path
+    std::string npcConfigPath = "config/zones/zone_" + std::to_string(zoneId_) + "_npcs.json";
+    
+    req::shared::logInfo("zone", std::string{"[NPC] Loading NPCs from: "} + npcConfigPath);
+    
+    // Try to load NPC JSON file
+    std::ifstream file(npcConfigPath);
+    if (!file.is_open()) {
+        req::shared::logInfo("zone", std::string{"[NPC] No NPC file found ("} + npcConfigPath + 
+            "), zone will have no NPCs");
+        return;
+    }
+    
+    try {
+        nlohmann::json j;
+        file >> j;
+        
+        if (!j.contains("npcs") || !j["npcs"].is_array()) {
+            req::shared::logWarn("zone", "[NPC] NPC file does not contain 'npcs' array");
+            return;
+        }
+        
+        int loadedCount = 0;
+        for (const auto& npcJson : j["npcs"]) {
+            req::shared::data::ZoneNpc npc;
+            
+            // Required fields
+            npc.npcId = npcJson.value("npc_id", static_cast<std::uint64_t>(0));
+            npc.name = npcJson.value("name", std::string{"Unknown NPC"});
+            npc.level = npcJson.value("level", static_cast<std::int32_t>(1));
+            npc.maxHp = npcJson.value("max_hp", static_cast<std::int32_t>(100));
+            npc.currentHp = npc.maxHp;  // Start at full HP
+            npc.isAlive = true;
+            
+            // Position
+            npc.posX = npcJson.value("pos_x", 0.0f);
+            npc.posY = npcJson.value("pos_y", 0.0f);
+            npc.posZ = npcJson.value("pos_z", 0.0f);
+            npc.facingDegrees = npcJson.value("facing_degrees", 0.0f);
+            
+            // Store spawn point for leashing
+            npc.spawnX = npc.posX;
+            npc.spawnY = npc.posY;
+            npc.spawnZ = npc.posZ;
+            
+            // Optional fields with defaults
+            npc.minDamage = npcJson.value("min_damage", static_cast<std::int32_t>(1));
+            npc.maxDamage = npcJson.value("max_damage", static_cast<std::int32_t>(5));
+            npc.aggroRadius = npcJson.value("aggro_radius", 10.0f);
+            npc.leashRadius = npcJson.value("leash_radius", 50.0f);
+            
+            // Validate NPC ID
+            if (npc.npcId == 0) {
+                req::shared::logWarn("zone", "[NPC] Skipping NPC with npc_id=0 (invalid)");
+                continue;
+            }
+            
+            // Check for duplicate IDs
+            if (npcs_.find(npc.npcId) != npcs_.end()) {
+                req::shared::logWarn("zone", std::string{"[NPC] Duplicate npc_id="} + 
+                    std::to_string(npc.npcId) + ", skipping");
+                continue;
+            }
+            
+            // Add to NPC map
+            npcs_[npc.npcId] = npc;
+            loadedCount++;
+            
+            req::shared::logInfo("zone", std::string{"[NPC] Loaded: id="} + std::to_string(npc.npcId) +
+                ", name=\"" + npc.name + "\", level=" + std::to_string(npc.level) +
+                ", maxHp=" + std::to_string(npc.maxHp) +
+                ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," +
+                std::to_string(npc.posZ) + "), facing=" + std::to_string(npc.facingDegrees));
+        }
+        
+        req::shared::logInfo("zone", std::string{"[NPC] Loaded "} + std::to_string(loadedCount) +
+            " NPC(s) for zone " + std::to_string(zoneId_));
+        
+    } catch (const nlohmann::json::exception& e) {
+        req::shared::logError("zone", std::string{"[NPC] JSON parse error: "} + e.what());
+    } catch (const std::exception& e) {
+        req::shared::logError("zone", std::string{"[NPC] Error loading NPCs: "} + e.what());
+    }
+}
+
+void ZoneServer::updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds) {
+    // Placeholder for future AI/behavior
+    // For now, NPCs are stationary
+    (void)npc;
+    (void)deltaSeconds;
+}
+
 void ZoneServer::run() {
     req::shared::logInfo("zone", std::string{"ZoneServer starting: worldId="} + 
         std::to_string(worldId_) + ", zoneId=" + std::to_string(zoneId_) + 
         ", zoneName=\"" + zoneName_ + "\", address=" + address_ + 
         ", port=" + std::to_string(port_));
+    
+    // Load NPCs for this zone
+    loadNpcsForZone();
+    
     startAccept();
     
     // Start the simulation tick loop
@@ -286,6 +386,27 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         // Determine spawn position using character data
         spawnPlayer(*character, player);
         
+        // Initialize combat state from character
+        player.level = character->level;
+        player.hp = (character->hp > 0) ? character->hp : character->maxHp;
+        player.maxHp = character->maxHp;
+        player.mana = (character->mana > 0) ? character->mana : character->maxMana;
+        player.maxMana = character->maxMana;
+        
+        // Initialize primary stats
+        player.strength = character->strength;
+        player.stamina = character->stamina;
+        player.agility = character->agility;
+        player.dexterity = character->dexterity;
+        player.intelligence = character->intelligence;
+        player.wisdom = character->wisdom;
+        player.charisma = character->charisma;
+        
+        req::shared::logInfo("zone", std::string{"[COMBAT] Initialized combat state: level="} +
+            std::to_string(player.level) + ", hp=" + std::to_string(player.hp) + "/" +
+            std::to_string(player.maxHp) + ", mana=" + std::to_string(player.mana) + "/" +
+            std::to_string(player.maxMana));
+        
         // Initialize last valid position
         player.lastValidPosX = player.posX;
         player.lastValidPosY = player.posY;
@@ -298,6 +419,7 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         player.lastSequenceNumber = 0;
         player.isInitialized = true;
         player.isDirty = false;
+        player.combatStatsDirty = false;
         
         // Insert into players map
         players_[characterId] = player;
@@ -385,6 +507,87 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         break;
     }
     
+    case req::shared::MessageType::AttackRequest: {
+        req::shared::protocol::AttackRequestData request;
+        
+        if (!req::shared::protocol::parseAttackRequestPayload(body, request)) {
+            req::shared::logError("zone", "Failed to parse AttackRequest payload");
+            return;
+        }
+        
+        req::shared::logInfo("zone", std::string{"[COMBAT] AttackRequest: attackerCharId="} +
+            std::to_string(request.attackerCharacterId) + ", targetId=" +
+            std::to_string(request.targetId) + ", abilityId=" + std::to_string(request.abilityId) +
+            ", basicAttack=" + (request.isBasicAttack ? "1" : "0"));
+        
+        // Validate attacker is a valid player
+        auto attackerIt = players_.find(request.attackerCharacterId);
+        if (attackerIt == players_.end()) {
+            req::shared::logWarn("zone", std::string{"[COMBAT] Invalid attacker: characterId="} +
+                std::to_string(request.attackerCharacterId) + " not found");
+            
+            req::shared::protocol::AttackResultData result;
+            result.attackerId = request.attackerCharacterId;
+            result.targetId = request.targetId;
+            result.damage = 0;
+            result.wasHit = false;
+            result.remainingHp = 0;
+            result.resultCode = 2; // Not owner / invalid attacker
+            result.message = "Invalid attacker";
+            
+            std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
+            req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
+            connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            return;
+        }
+        
+        // Validate connection owns the attacker
+        auto& attacker = attackerIt->second;
+        if (attacker.connection != connection) {
+            req::shared::logWarn("zone", std::string{"[COMBAT] Connection doesn't own attacker: characterId="} +
+                std::to_string(request.attackerCharacterId));
+            
+            req::shared::protocol::AttackResultData result;
+            result.attackerId = request.attackerCharacterId;
+            result.targetId = request.targetId;
+            result.damage = 0;
+            result.wasHit = false;
+            result.remainingHp = 0;
+            result.resultCode = 2; // Not owner
+            result.message = "Not your character";
+            
+            std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
+            req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
+            connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            return;
+        }
+        
+        // Find target NPC
+        auto targetIt = npcs_.find(request.targetId);
+        if (targetIt == npcs_.end()) {
+            req::shared::logWarn("zone", std::string{"[COMBAT] Invalid target: npcId="} +
+                std::to_string(request.targetId) + " not found");
+            
+            req::shared::protocol::AttackResultData result;
+            result.attackerId = request.attackerCharacterId;
+            result.targetId = request.targetId;
+            result.damage = 0;
+            result.wasHit = false;
+            result.remainingHp = 0;
+            result.resultCode = 1; // Invalid target
+            result.message = "Invalid target";
+            
+            std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
+            req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
+            connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            return;
+        }
+        
+        // Process the attack
+        processAttack(attacker, targetIt->second, request);
+        break;
+    }
+    
     default:
         req::shared::logWarn("zone", std::string{"Unsupported message type: "} + 
             std::to_string(static_cast<int>(header.type)));
@@ -421,6 +624,7 @@ void ZoneServer::onTick(const boost::system::error_code& ec) {
 }
 
 void ZoneServer::updateSimulation(float dt) {
+    // Update player physics
     for (auto& [characterId, player] : players_) {
         if (!player.isInitialized) {
             continue;
@@ -507,6 +711,18 @@ void ZoneServer::updateSimulation(float dt) {
                 player.isDirty = true;
             }
         }
+    }
+    
+    // Update NPCs (placeholder for now - no AI yet)
+    for (auto& [npcId, npc] : npcs_) {
+        updateNpc(npc, dt);
+    }
+    
+    // Periodic NPC debug logging (every 5 seconds at 20Hz = 100 ticks)
+    static std::uint64_t npcLogCounter = 0;
+    if (!npcs_.empty() && ++npcLogCounter % 100 == 0) {
+        req::shared::logInfo("zone", std::string{"[NPC] Tick: "} + std::to_string(npcs_.size()) +
+            " NPC(s) in zone (no AI yet)");
     }
 }
 
@@ -750,6 +966,28 @@ void ZoneServer::savePlayerPosition(std::uint64_t characterId) {
     character->positionZ = player.posZ;
     character->heading = player.yawDegrees;
     
+    // Update combat state if dirty
+    if (player.combatStatsDirty) {
+        character->level = player.level;
+        character->hp = player.hp;
+        character->maxHp = player.maxHp;
+        character->mana = player.mana;
+        character->maxMana = player.maxMana;
+        
+        character->strength = player.strength;
+        character->stamina = player.stamina;
+        character->agility = player.agility;
+        character->dexterity = player.dexterity;
+        character->intelligence = player.intelligence;
+        character->wisdom = player.wisdom;
+        character->charisma = player.charisma;
+        
+        req::shared::logInfo("zone", std::string{"[SAVE] Combat stats saved: characterId="} +
+            std::to_string(characterId) + ", hp=" + std::to_string(player.hp) + "/" +
+            std::to_string(player.maxHp) + ", mana=" + std::to_string(player.mana) + "/" +
+            std::to_string(player.maxMana));
+    }
+    
     // Save to disk
     if (characterStore_.saveCharacter(*character)) {
         req::shared::logInfo("zone", std::string{"[SAVE] Position saved: characterId="} +
@@ -759,6 +997,7 @@ void ZoneServer::savePlayerPosition(std::uint64_t characterId) {
         
         // Mark as clean after successful save
         playerIt->second.isDirty = false;
+        playerIt->second.combatStatsDirty = false;
     } else {
         req::shared::logError("zone", std::string{"[SAVE] Failed to save character position: characterId="} +
             std::to_string(characterId));
@@ -770,7 +1009,7 @@ void ZoneServer::saveAllPlayerPositions() {
     int skippedCount = 0;
     
     for (auto& [characterId, player] : players_) {
-        if (!player.isInitialized || !player.isDirty) {
+        if (!player.isInitialized || (!player.isDirty && !player.combatStatsDirty)) {
             skippedCount++;
             continue;
         }
@@ -863,6 +1102,143 @@ void ZoneServer::onAutosave(const boost::system::error_code& ec) {
     
     // Schedule next autosave
     scheduleAutosave();
+}
+
+void ZoneServer::processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc& target,
+                               const req::shared::protocol::AttackRequestData& request) {
+    // Check if target is already dead
+    if (!target.isAlive || target.currentHp <= 0) {
+        req::shared::protocol::AttackResultData result;
+        result.attackerId = attacker.characterId;
+        result.targetId = target.npcId;
+        result.damage = 0;
+        result.wasHit = false;
+        result.remainingHp = 0;
+        result.resultCode = 5; // Target is dead
+        result.message = target.name + " is already dead";
+        
+        broadcastAttackResult(result);
+        return;
+    }
+    
+    // Check range (simple Euclidean distance)
+    float dx = attacker.posX - target.posX;
+    float dy = attacker.posY - target.posY;
+    float dz = attacker.posZ - target.posZ;
+    float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+    
+    constexpr float MAX_ATTACK_RANGE = 200.0f; // Configurable
+    
+    if (distance > MAX_ATTACK_RANGE) {
+        req::shared::logWarn("zone", std::string{"[COMBAT] Out of range: distance="} +
+            std::to_string(distance) + ", max=" + std::to_string(MAX_ATTACK_RANGE));
+        
+        req::shared::protocol::AttackResultData result;
+        result.attackerId = attacker.characterId;
+        result.targetId = target.npcId;
+        result.damage = 0;
+        result.wasHit = false;
+        result.remainingHp = target.currentHp;
+        result.resultCode = 1; // Out of range
+        result.message = "Target out of range";
+        
+        broadcastAttackResult(result);
+        return;
+    }
+    
+    // Calculate hit chance (simple: 95% hit for now)
+    static std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> hitRoll(1, 100);
+    bool didHit = (hitRoll(rng) <= 95);
+    
+    if (!didHit) {
+        req::shared::logInfo("zone", std::string{"[COMBAT] Attack missed: attacker="} +
+            std::to_string(attacker.characterId) + ", target=" + std::to_string(target.npcId));
+        
+        req::shared::protocol::AttackResultData result;
+        result.attackerId = attacker.characterId;
+        result.targetId = target.npcId;
+        result.damage = 0;
+        result.wasHit = false;
+        result.remainingHp = target.currentHp;
+        result.resultCode = 0; // Success (but missed)
+        result.message = "You miss " + target.name;
+        
+        broadcastAttackResult(result);
+        return;
+    }
+    
+    // Calculate damage: base damage from level + strength bonus + random
+    int baseDamage = 5 + (attacker.level * 2);
+    int strengthBonus = attacker.strength / 10;
+    std::uniform_int_distribution<int> damageVariance(-2, 5);
+    int variance = damageVariance(rng);
+    
+    int totalDamage = baseDamage + strengthBonus + variance;
+    totalDamage = std::max(1, totalDamage); // Minimum 1 damage
+    
+    // Apply damage to NPC
+    target.currentHp -= totalDamage;
+    bool targetDied = false;
+    
+    if (target.currentHp <= 0) {
+        target.currentHp = 0;
+        target.isAlive = false;
+        targetDied = true;
+        
+        req::shared::logInfo("zone", std::string{"[COMBAT] NPC slain: npcId="} +
+            std::to_string(target.npcId) + ", name=\"" + target.name + 
+            "\", killerCharId=" + std::to_string(attacker.characterId));
+    }
+    
+    // Build result message
+    std::ostringstream msgBuilder;
+    if (targetDied) {
+        msgBuilder << "You hit " << target.name << " for " << totalDamage 
+                   << " points of damage. " << target.name << " has been slain!";
+    } else {
+        msgBuilder << "You hit " << target.name << " for " << totalDamage << " points of damage";
+    }
+    
+    req::shared::logInfo("zone", std::string{"[COMBAT] Attack hit: attacker="} +
+        std::to_string(attacker.characterId) + ", target=" + std::to_string(target.npcId) +
+        ", damage=" + std::to_string(totalDamage) + ", remainingHp=" + std::to_string(target.currentHp));
+    
+    // Build and broadcast result
+    req::shared::protocol::AttackResultData result;
+    result.attackerId = attacker.characterId;
+    result.targetId = target.npcId;
+    result.damage = totalDamage;
+    result.wasHit = true;
+    result.remainingHp = target.currentHp;
+    result.resultCode = 0; // Success
+    result.message = msgBuilder.str();
+    
+    broadcastAttackResult(result);
+}
+
+void ZoneServer::broadcastAttackResult(const req::shared::protocol::AttackResultData& result) {
+    std::string payload = req::shared::protocol::buildAttackResultPayload(result);
+    req::shared::net::Connection::ByteArray payloadBytes(payload.begin(), payload.end());
+    
+    req::shared::logInfo("zone", std::string{"[COMBAT] AttackResult: attacker="} +
+        std::to_string(result.attackerId) + ", target=" + std::to_string(result.targetId) +
+        ", dmg=" + std::to_string(result.damage) + ", hit=" + (result.wasHit ? "1" : "0") +
+        ", remainingHp=" + std::to_string(result.remainingHp) +
+        ", resultCode=" + std::to_string(result.resultCode) +
+        ", msg=\"" + result.message + "\"");
+    
+    // Broadcast to all clients in the zone (for now - could optimize to nearby only)
+    int sentCount = 0;
+    for (auto& connection : connections_) {
+        if (connection) {
+            connection->send(req::shared::MessageType::AttackResult, payloadBytes);
+            sentCount++;
+        }
+    }
+    
+    req::shared::logInfo("zone", std::string{"[COMBAT] Broadcast AttackResult to "} +
+        std::to_string(sentCount) + " client(s)");
 }
 
 } // namespace req::zone

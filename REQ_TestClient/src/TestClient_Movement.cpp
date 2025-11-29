@@ -186,6 +186,7 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
     std::cout << "  a - Strafe left\n";
     std::cout << "  d - Strafe right\n";
     std::cout << "  j - Jump\n";
+    std::cout << "  attack <npcId> - Attack an NPC\n";
     std::cout << "  [empty] - Stop moving\n";
     std::cout << "  q - Quit movement test\n";
     std::cout << "==============================\n\n";
@@ -218,6 +219,19 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
                 } else {
                     req::shared::logError("TestClient", "Failed to parse PlayerStateSnapshot");
                 }
+            } else if (header.type == req::shared::MessageType::AttackResult) {
+                req::shared::protocol::AttackResultData result;
+                if (req::shared::protocol::parseAttackResultPayload(msgBody, result)) {
+                    std::cout << "[CLIENT] AttackResult: attackerId=" << result.attackerId
+                             << ", targetId=" << result.targetId
+                             << ", dmg=" << result.damage
+                             << ", hit=" << (result.wasHit ? "YES" : "NO")
+                             << ", remainingHp=" << result.remainingHp
+                             << ", resultCode=" << result.resultCode
+                             << ", msg=\"" << result.message << "\"" << std::endl;
+                } else {
+                    req::shared::logError("TestClient", "Failed to parse AttackResult");
+                }
             } else {
                 req::shared::logInfo("TestClient", std::string{"Received unexpected message type: "} + 
                     std::to_string(static_cast<int>(header.type)));
@@ -238,6 +252,32 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
             req::shared::logInfo("TestClient", "User requested quit from movement test");
             running = false;
             break;
+        }
+        
+        // Check for attack command
+        if (command.find("attack ") == 0) {
+            std::string npcIdStr = command.substr(7); // Skip "attack "
+            try {
+                std::uint64_t npcId = std::stoull(npcIdStr);
+                
+                // Build and send AttackRequest
+                req::shared::protocol::AttackRequestData attackReq;
+                attackReq.attackerCharacterId = localCharacterId;
+                attackReq.targetId = npcId;
+                attackReq.abilityId = 0;
+                attackReq.isBasicAttack = true;
+                
+                std::string payload = req::shared::protocol::buildAttackRequestPayload(attackReq);
+                if (!sendMessage(*zoneSocket, req::shared::MessageType::AttackRequest, payload)) {
+                    req::shared::logError("TestClient", "Failed to send AttackRequest");
+                } else {
+                    req::shared::logInfo("TestClient", std::string{"Sent AttackRequest: target="} +
+                        std::to_string(npcId));
+                }
+            } catch (const std::exception& e) {
+                std::cout << "Invalid NPC ID: '" << npcIdStr << "'. Usage: attack <npcId>\n";
+            }
+            continue;
         }
         
         // Build movement intent from command
@@ -268,7 +308,7 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
         } else if (command.empty()) {
             // No input - already set to zeros
         } else {
-            std::cout << "Unknown command: '" << command << "'. Use w/a/s/d/j/q.\n";
+            std::cout << "Unknown command: '" << command << "'. Use w/a/s/d/j/attack <npcId>/q.\n";
             continue;
         }
         

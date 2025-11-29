@@ -224,4 +224,42 @@ struct NpcTemplate {
     // TODO: Add stats, behaviors, abilities
 };
 
+// ============================================================================
+// Zone-specific Runtime Data
+// ============================================================================
+
+/**
+ * ZoneNpc
+ * 
+ * Runtime state for an NPC active in a zone.
+ * Combines template data with current position, HP, and state.
+ */
+struct ZoneNpc {
+    std::uint64_t npcId{ 0 };              // Unique NPC instance ID
+    std::string name;                       // Display name
+    std::int32_t level{ 1 };                // Level
+    
+    // Combat state
+    std::int32_t currentHp{ 100 };
+    std::int32_t maxHp{ 100 };
+    bool isAlive{ true };
+    
+    // Position and orientation
+    float posX{ 0.0f };
+    float posY{ 0.0f };
+    float posZ{ 0.0f };
+    float facingDegrees{ 0.0f };
+    
+    // Optional: future stats
+    std::int32_t minDamage{ 1 };
+    std::int32_t maxDamage{ 5 };
+    float aggroRadius{ 10.0f };             // Distance at which NPC aggros
+    float leashRadius{ 50.0f };             // Distance from spawn before NPC resets
+    
+    // Spawn point (for leashing/reset)
+    float spawnX{ 0.0f };
+    float spawnY{ 0.0f };
+    float spawnZ{ 0.0f };
+};
+
 } // namespace req::shared::data

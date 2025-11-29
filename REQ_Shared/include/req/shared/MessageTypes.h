@@ -33,6 +33,10 @@ enum class MessageType : std::uint16_t {
     MovementIntent        = 40, // Client sends movement input to ZoneServer
     PlayerStateSnapshot   = 41, // ZoneServer sends authoritative player states to client
 
+    // Zone gameplay - Combat
+    AttackRequest         = 42, // Client requests to attack a target
+    AttackResult          = 43, // ZoneServer sends attack result to client(s)
+
     // Gameplay (initial placeholders)
     PlayerState       = 100, // Snapshot of player state (DEPRECATED - use PlayerStateSnapshot)
     NpcSpawn          = 101, // NPC spawn info (TODO payload format)

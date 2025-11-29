@@ -1,0 +1,46 @@
+{
+  "npcs": [
+    {
+      "npc_id": 2001,
+      "name": "A Gnoll Scout",
+      "level": 3,
+      "max_hp": 45,
+      "min_damage": 2,
+      "max_damage": 6,
+      "pos_x": 80.0,
+      "pos_y": 120.0,
+      "pos_z": 0.0,
+      "facing_degrees": 0.0,
+      "aggro_radius": 15.0,
+      "leash_radius": 60.0
+    },
+    {
+      "npc_id": 2002,
+      "name": "A Gnoll Warrior",
+      "level": 4,
+      "max_hp": 60,
+      "min_damage": 3,
+      "max_damage": 8,
+      "pos_x": 180.0,
+      "pos_y": 90.0,
+      "pos_z": 0.0,
+      "facing_degrees": 90.0,
+      "aggro_radius": 18.0,
+      "leash_radius": 70.0
+    },
+    {
+      "npc_id": 2003,
+      "name": "An Orc Pawn",
+      "level": 5,
+      "max_hp": 80,
+      "min_damage": 4,
+      "max_damage": 10,
+      "pos_x": 250.0,
+      "pos_y": 180.0,
+      "pos_z": 0.0,
+      "facing_degrees": 180.0,
+      "aggro_radius": 20.0,
+      "leash_radius": 80.0
+    }
+  ]
+}
