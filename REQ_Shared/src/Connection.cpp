@@ -13,6 +13,10 @@ void Connection::setMessageHandler(MessageHandler handler) {
     onMessage_ = std::move(handler);
 }
 
+void Connection::setDisconnectHandler(DisconnectHandler handler) {
+    onDisconnect_ = std::move(handler);
+}
+
 void Connection::start() {
     req::shared::logInfo("net", "Connection started");
     doReadHeader();
@@ -140,6 +144,11 @@ void Connection::close() {
     socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
     socket_.close(ec);
     req::shared::logInfo("net", "Connection closed");
+    
+    // Notify disconnect handler if set
+    if (onDisconnect_) {
+        onDisconnect_(shared_from_this());
+    }
 }
 
 } // namespace req::shared::net

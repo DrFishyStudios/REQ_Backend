@@ -193,6 +193,8 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\BotClient.cpp" />
+    <ClCompile Include="src\BotManager.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\TestClient.cpp" />
     <ClCompile Include="src\TestClient_Movement.cpp" />
@@ -200,6 +202,8 @@
     <ClCompile Include="src\TestClient_Scenarios.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\req\testclient\BotClient.h" />
+    <ClInclude Include="include\req\testclient\BotManager.h" />
     <ClInclude Include="include\req\testclient\ClientStages.h" />
     <ClInclude Include="include\req\testclient\TestClient.h" />
   </ItemGroup>

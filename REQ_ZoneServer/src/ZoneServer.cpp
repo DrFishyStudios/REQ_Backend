@@ -57,6 +57,28 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     zoneConfig_.safeZ = 0.0f;
     zoneConfig_.safeYaw = 0.0f;
     zoneConfig_.autosaveIntervalSec = 30.0f;
+    zoneConfig_.broadcastFullState = true;
+    zoneConfig_.interestRadius = 2000.0f;
+    zoneConfig_.debugInterest = false;
+    
+    // Attempt to load zone config from JSON (optional)
+    std::string configPath = "config/zones/zone_" + std::to_string(zoneId) + "_config.json";
+    try {
+        auto loadedConfig = req::shared::loadZoneConfig(configPath);
+        
+        // Verify zone ID matches
+        if (loadedConfig.zoneId != zoneId) {
+            req::shared::logWarn("zone", std::string{"Zone config file zone_id ("} + 
+                std::to_string(loadedConfig.zoneId) + ") does not match server zone_id (" + 
+                std::to_string(zoneId) + "), using defaults");
+        } else {
+            zoneConfig_ = loadedConfig;
+            req::shared::logInfo("zone", std::string{"Loaded zone config from: "} + configPath);
+        }
+    } catch (const std::exception& e) {
+        req::shared::logInfo("zone", std::string{"Zone config not found or invalid ("} + configPath + 
+            "), using defaults");
+    }
     
     // Log ZoneServer construction
     req::shared::logInfo("zone", std::string{"ZoneServer constructed:"});
@@ -67,6 +89,9 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     req::shared::logInfo("zone", std::string{"  port="} + std::to_string(port_));
     req::shared::logInfo("zone", std::string{"  charactersPath="} + charactersPath);
     req::shared::logInfo("zone", std::string{"  tickRate="} + std::to_string(TICK_RATE_HZ) + " Hz");
+    req::shared::logInfo("zone", std::string{"  broadcastFullState="} + 
+        (zoneConfig_.broadcastFullState ? "true" : "false"));
+    req::shared::logInfo("zone", std::string{"  interestRadius="} + std::to_string(zoneConfig_.interestRadius));
 }
 
 void ZoneServer::run() {
@@ -111,14 +136,18 @@ void ZoneServer::handleNewConnection(Tcp::socket socket) {
     auto connection = std::make_shared<req::shared::net::Connection>(std::move(socket));
     connections_.push_back(connection);
 
-    connection->setMessageHandler([this](const req::shared::MessageHeader& header,
+    connection->setMessageHandler([this, connection](const req::shared::MessageHeader& header,
                                          const req::shared::net::Connection::ByteArray& payload,
                                          std::shared_ptr<req::shared::net::Connection> conn) {
         handleMessage(header, payload, conn);
     });
+    
+    connection->setDisconnectHandler([this](std::shared_ptr<req::shared::net::Connection> conn) {
+        onConnectionClosed(conn);
+    });
 
     req::shared::logInfo("zone", std::string{"New client connected to zone \""} + zoneName_ + 
-        "\" (id=" + std::to_string(zoneId_) + ")");
+        "\" (id=" + std::to_string(zoneId_) + "), total connections=" + std::to_string(connections_.size()));
     connection->start();
 }
 
@@ -179,7 +208,7 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
             req::shared::logInfo("zone", std::string{"[ZONEAUTH] Sending ERROR response: type="} + 
                 std::to_string(static_cast<int>(req::shared::MessageType::ZoneAuthResponse)) +
                 ", payload='" + errPayload + "'");
-            
+
             connection->send(req::shared::MessageType::ZoneAuthResponse, errBytes);
             return;
         }
@@ -241,9 +270,18 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         req::shared::logInfo("zone", std::string{"[ZONEAUTH] Creating ZonePlayer entry for characterId="} + 
             std::to_string(characterId));
         
+        // Check if character is already in zone (duplicate login or reconnect)
+        auto existingIt = players_.find(characterId);
+        if (existingIt != players_.end()) {
+            req::shared::logWarn("zone", std::string{"[ZONEAUTH] Character already in zone: characterId="} +
+                std::to_string(characterId) + ", removing old entry");
+            removePlayer(characterId);
+        }
+        
         ZonePlayer player;
         player.characterId = characterId;
         player.accountId = character->accountId;
+        player.connection = connection;
         
         // Determine spawn position using character data
         spawnPlayer(*character, player);
@@ -265,10 +303,12 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         players_[characterId] = player;
         connectionToCharacterId_[connection] = characterId;
         
-        req::shared::logInfo("zone", std::string{"[ZONEAUTH] ZonePlayer initialized: characterId="} + 
-            std::to_string(characterId) + ", spawn=(" + 
+        req::shared::logInfo("zone", std::string{"[ZonePlayer created] characterId="} + 
+            std::to_string(characterId) + ", accountId=" + std::to_string(character->accountId) +
+            ", zoneId=" + std::to_string(zoneId_) + ", pos=(" + 
             std::to_string(player.posX) + "," + std::to_string(player.posY) + "," + 
-            std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees));
+            std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees) +
+            ", active_players=" + std::to_string(players_.size()));
 
         // Build success response
         std::string welcomeMsg = std::string("Welcome to ") + zoneName_ + 
@@ -281,9 +321,10 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         req::shared::logInfo("zone", std::string{"[ZONEAUTH]   type="} + 
             std::to_string(static_cast<int>(req::shared::MessageType::ZoneAuthResponse)) + 
             " (enum: " + std::to_string(static_cast<std::underlying_type_t<req::shared::MessageType>>(req::shared::MessageType::ZoneAuthResponse)) + ")");
+
         req::shared::logInfo("zone", std::string{"[ZONEAUTH]   payloadSize="} + std::to_string(respPayload.size()));
         req::shared::logInfo("zone", std::string{"[ZONEAUTH]   payload='"} + respPayload + "'");
-        
+
         connection->send(req::shared::MessageType::ZoneAuthResponse, respBytes);
 
         req::shared::logInfo("zone", std::string{"[ZONEAUTH] COMPLETE: characterId="} + 
@@ -475,39 +516,139 @@ void ZoneServer::broadcastSnapshots() {
         return;
     }
     
-    // Build PlayerStateSnapshotData
-    req::shared::protocol::PlayerStateSnapshotData snapshot;
-    snapshot.snapshotId = ++snapshotCounter_;
-    
-    for (const auto& [characterId, player] : players_) {
-        if (!player.isInitialized) {
-            continue;
-        }
-        
-        req::shared::protocol::PlayerStateEntry entry;
-        entry.characterId = player.characterId;
-        entry.posX = player.posX;
-        entry.posY = player.posY;
-        entry.posZ = player.posZ;
-        entry.velX = player.velX;
-        entry.velY = player.velY;
-        entry.velZ = player.velZ;
-        entry.yawDegrees = player.yawDegrees;
-        
-        snapshot.players.push_back(entry);
+    // Log snapshot building (periodic, not every tick to reduce spam)
+    static std::uint64_t logCounter = 0;
+    if (++logCounter % 100 == 0) {  // Log every 100 snapshots (~5 seconds at 20Hz)
+        req::shared::logInfo("zone", std::string{"[Snapshot] Building snapshot "} + 
+            std::to_string(snapshotCounter_ + 1) + " for " + std::to_string(players_.size()) + " active player(s)");
     }
     
-    // Build payload
-    std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
-    req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
+    ++snapshotCounter_;
     
-    // req::shared::logInfo("zone", std::string{"Broadcasting snapshot "} + std::to_string(snapshot.snapshotId) + 
-    //     " with " + std::to_string(snapshot.players.size()) + " player(s)");
-    
-    // Broadcast to all connected clients
-    for (auto& connection : connections_) {
-        if (connection) {
-            connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
+    // If broadcastFullState is true, use old behavior (single snapshot for all clients)
+    if (zoneConfig_.broadcastFullState) {
+        // Build single snapshot with ALL players
+        req::shared::protocol::PlayerStateSnapshotData snapshot;
+        snapshot.snapshotId = snapshotCounter_;
+        
+        for (const auto& [characterId, player] : players_) {
+            if (!player.isInitialized) {
+                continue;
+            }
+            
+            req::shared::protocol::PlayerStateEntry entry;
+            entry.characterId = player.characterId;
+            entry.posX = player.posX;
+            entry.posY = player.posY;
+            entry.posZ = player.posZ;
+            entry.velX = player.velX;
+            entry.velY = player.velY;
+            entry.velZ = player.velZ;
+            entry.yawDegrees = player.yawDegrees;
+            
+            snapshot.players.push_back(entry);
+        }
+        
+        // Build payload once
+        std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
+        req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
+        
+        // Broadcast to all connected clients
+        int sentCount = 0;
+        for (auto& connection : connections_) {
+            if (connection) {
+                connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
+                sentCount++;
+            }
+        }
+        
+        // Log broadcast summary (periodic)
+        if (logCounter % 100 == 0) {
+            req::shared::logInfo("zone", std::string{"[Snapshot] Broadcast snapshot "} + 
+                std::to_string(snapshot.snapshotId) + " with " + std::to_string(snapshot.players.size()) + 
+                " player(s) to " + std::to_string(sentCount) + " connection(s) [FULL BROADCAST]");
+        }
+    } else {
+        // Interest-based filtering: build per-recipient snapshots
+        int totalSent = 0;
+        
+        for (auto& [recipientCharId, recipientPlayer] : players_) {
+            if (!recipientPlayer.isInitialized || !recipientPlayer.connection) {
+                continue;
+            }
+            
+            // Build snapshot for this specific recipient
+            req::shared::protocol::PlayerStateSnapshotData snapshot;
+            snapshot.snapshotId = snapshotCounter_;
+            
+            float recipientX = recipientPlayer.posX;
+            float recipientY = recipientPlayer.posY;
+            float recipientZ = recipientPlayer.posZ;
+            
+            int includedCount = 0;
+            
+            for (const auto& [otherCharId, otherPlayer] : players_) {
+                if (!otherPlayer.isInitialized) {
+                    continue;
+                }
+                
+                // Always include self
+                if (otherCharId == recipientCharId) {
+                    req::shared::protocol::PlayerStateEntry entry;
+                    entry.characterId = otherPlayer.characterId;
+                    entry.posX = otherPlayer.posX;
+                    entry.posY = otherPlayer.posY;
+                    entry.posZ = otherPlayer.posZ;
+                    entry.velX = otherPlayer.velX;
+                    entry.velY = otherPlayer.velY;
+                    entry.velZ = otherPlayer.velZ;
+                    entry.yawDegrees = otherPlayer.yawDegrees;
+                    snapshot.players.push_back(entry);
+                    includedCount++;
+                    continue;
+                }
+                
+                // Check distance (2D or 3D - using 2D for now: XY plane)
+                float dx = otherPlayer.posX - recipientX;
+                float dy = otherPlayer.posY - recipientY;
+                float distance = std::sqrt(dx * dx + dy * dy);
+                
+                if (distance <= zoneConfig_.interestRadius) {
+                    req::shared::protocol::PlayerStateEntry entry;
+                    entry.characterId = otherPlayer.characterId;
+                    entry.posX = otherPlayer.posX;
+                    entry.posY = otherPlayer.posY;
+                    entry.posZ = otherPlayer.posZ;
+                    entry.velX = otherPlayer.velX;
+                    entry.velY = otherPlayer.velY;
+                    entry.velZ = otherPlayer.velZ;
+                    entry.yawDegrees = otherPlayer.yawDegrees;
+                    snapshot.players.push_back(entry);
+                    includedCount++;
+                }
+            }
+            
+            // Debug logging (if enabled)
+            if (zoneConfig_.debugInterest && logCounter % 20 == 0) {  // Every 1 second at 20Hz
+                req::shared::logInfo("zone", std::string{"[Snapshot] (filtered) recipientCharId="} + 
+                    std::to_string(recipientCharId) + ", playersIncluded=" + std::to_string(includedCount) +
+                    " (out of " + std::to_string(players_.size()) + " total)");
+            }
+            
+            // Build payload and send to this recipient
+            std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
+            req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
+            
+            recipientPlayer.connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
+            totalSent++;
+        }
+        
+        // Log broadcast summary (periodic)
+        if (logCounter % 100 == 0) {
+            req::shared::logInfo("zone", std::string{"[Snapshot] Broadcast snapshot "} + 
+                std::to_string(snapshotCounter_) + " with INTEREST FILTERING to " + 
+                std::to_string(totalSent) + " client(s) [radius=" + 
+                std::to_string(zoneConfig_.interestRadius) + "]");
         }
     }
 }
@@ -579,7 +720,10 @@ void ZoneServer::setZoneConfig(const ZoneConfig& config) {
     req::shared::logInfo("zone", std::string{"Zone config updated: safeSpawn=("} +
         std::to_string(config.safeX) + "," + std::to_string(config.safeY) + "," +
         std::to_string(config.safeZ) + "), safeYaw=" + std::to_string(config.safeYaw) +
-        ", autosaveInterval=" + std::to_string(config.autosaveIntervalSec) + "s");
+        ", autosaveInterval=" + std::to_string(config.autosaveIntervalSec) + "s" +
+        ", broadcastFullState=" + (config.broadcastFullState ? "true" : "false") +
+        ", interestRadius=" + std::to_string(config.interestRadius) +
+        ", debugInterest=" + (config.debugInterest ? "true" : "false"));
 }
 
 void ZoneServer::savePlayerPosition(std::uint64_t characterId) {
@@ -644,29 +788,53 @@ void ZoneServer::saveAllPlayerPositions() {
 void ZoneServer::removePlayer(std::uint64_t characterId) {
     auto it = players_.find(characterId);
     if (it == players_.end()) {
+        req::shared::logWarn("zone", std::string{"[removePlayer] Character not found: characterId="} +
+            std::to_string(characterId));
         return;
     }
+    
+    const ZonePlayer& player = it->second;
     
     // Save final position before removing
     req::shared::logInfo("zone", std::string{"[DISCONNECT] Saving final position for characterId="} +
         std::to_string(characterId));
     savePlayerPosition(characterId);
     
+    // Remove from connection mapping
+    if (player.connection) {
+        connectionToCharacterId_.erase(player.connection);
+    }
+    
     // Remove from players map
     players_.erase(it);
     
-    req::shared::logInfo("zone", std::string{"[DISCONNECT] Player removed: characterId="} +
-        std::to_string(characterId) + ", remaining players=" + std::to_string(players_.size()));
+    req::shared::logInfo("zone", std::string{"[ZonePlayer removed] characterId="} +
+        std::to_string(characterId) + ", reason=disconnect" +
+        ", remaining_players=" + std::to_string(players_.size()));
 }
-
 void ZoneServer::onConnectionClosed(ConnectionPtr connection) {
+    req::shared::logInfo("zone", "[Connection] Connection closed, checking for associated ZonePlayer");
+    
     // Find character ID for this connection
     auto it = connectionToCharacterId_.find(connection);
     if (it != connectionToCharacterId_.end()) {
         std::uint64_t characterId = it->second;
+        req::shared::logInfo("zone", std::string{"[Connection] Found characterId="} + 
+            std::to_string(characterId) + " for closed connection");
         removePlayer(characterId);
         connectionToCharacterId_.erase(it);
+    } else {
+        req::shared::logInfo("zone", "[Connection] No ZonePlayer found for closed connection (connection closed before ZoneAuth)");
     }
+    
+    // Remove from connections list
+    connections_.erase(
+        std::remove(connections_.begin(), connections_.end(), connection),
+        connections_.end()
+    );
+    
+    req::shared::logInfo("zone", std::string{"[Connection] Connection cleanup complete, total connections="} +
+        std::to_string(connections_.size()));
 }
 
 void ZoneServer::scheduleAutosave() {

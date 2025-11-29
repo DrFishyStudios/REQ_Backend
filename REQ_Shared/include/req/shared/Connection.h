@@ -18,6 +18,7 @@ public:
     using Tcp       = boost::asio::ip::tcp;
     using ByteArray = std::vector<std::uint8_t>;
     using MessageHandler = std::function<void(const req::shared::MessageHeader&, const ByteArray&, std::shared_ptr<Connection>)>;
+    using DisconnectHandler = std::function<void(std::shared_ptr<Connection>)>;
 
     explicit Connection(Tcp::socket socket);
 
@@ -29,6 +30,7 @@ public:
 
     void close();
     void setMessageHandler(MessageHandler handler);
+    void setDisconnectHandler(DisconnectHandler handler);
 
 private:
     void doReadHeader();
@@ -48,6 +50,7 @@ private:
     bool                        writeInProgress_{ false };
 
     MessageHandler              onMessage_;
+    DisconnectHandler           onDisconnect_;
 };
 
 } // namespace req::shared::net

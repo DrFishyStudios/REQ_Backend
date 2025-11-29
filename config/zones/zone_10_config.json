@@ -1,0 +1,14 @@
+{
+  "zone_id": 10,
+  "zone_name": "East Freeport",
+  "safe_spawn": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+    "yaw": 0.0
+  },
+  "autosave_interval_sec": 30.0,
+  "broadcast_full_state": true,
+  "interest_radius": 2000.0,
+  "debug_interest": false
+}

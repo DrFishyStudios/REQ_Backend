@@ -28,6 +28,9 @@ struct ZonePlayer {
     std::uint64_t accountId{ 0 };          // Account owner
     std::uint64_t characterId{ 0 };
     
+    // Connection for sending messages
+    std::shared_ptr<req::shared::net::Connection> connection;
+    
     // Current state
     float posX{ 0.0f };
     float posY{ 0.0f };
@@ -53,24 +56,8 @@ struct ZonePlayer {
     bool isDirty{ false };  // Position changed since last save
 };
 
-/**
- * ZoneConfig
- * 
- * Zone-specific configuration including safe spawn point.
- */
-struct ZoneConfig {
-    std::uint32_t zoneId{ 0 };
-    std::string zoneName;
-    
-    // Safe spawn point (for first-time entry or failed position restore)
-    float safeX{ 0.0f };
-    float safeY{ 0.0f };
-    float safeZ{ 0.0f };
-    float safeYaw{ 0.0f };
-    
-    // Position auto-save interval (seconds)
-    float autosaveIntervalSec{ 30.0f };
-};
+// Use shared ZoneConfig from Config.h (no duplicate definition needed)
+using ZoneConfig = req::shared::ZoneConfig;
 
 class ZoneServer {
 public:
@@ -84,7 +71,7 @@ public:
     void run();
     void stop();
     
-    // Set zone configuration (safe spawn point, etc.)
+    // Set zone configuration (safe spawn point, interest management, etc.)
     void setZoneConfig(const ZoneConfig& config);
 
 private:

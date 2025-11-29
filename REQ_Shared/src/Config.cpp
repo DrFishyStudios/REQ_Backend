@@ -254,4 +254,74 @@ WorldConfig loadWorldConfig(const std::string& path) {
     return cfg;
 }
 
+ZoneConfig loadZoneConfig(const std::string& path) {
+    logInfo("Config", std::string{"Loading ZoneConfig from: "} + path);
+
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::string msg = std::string{"Failed to open ZoneConfig file: "} + path;
+        logError("Config", msg);
+        throw std::runtime_error(msg);
+    }
+
+    json j;
+    try {
+        file >> j;
+    } catch (const json::exception& e) {
+        std::string msg = std::string{"Failed to parse ZoneConfig JSON from "} + path + ": " + e.what();
+        logError("Config", msg);
+        throw std::runtime_error(msg);
+    }
+
+    ZoneConfig cfg;
+    cfg.zoneId = getRequired<std::uint32_t>(j, "zone_id", "ZoneConfig");
+    cfg.zoneName = getRequired<std::string>(j, "zone_name", "ZoneConfig");
+    
+    // Safe spawn point (optional, defaults to 0,0,0)
+    if (j.contains("safe_spawn") && j["safe_spawn"].is_object()) {
+        const auto& spawn = j["safe_spawn"];
+        cfg.safeX = getOrDefault<float>(spawn, "x", 0.0f);
+        cfg.safeY = getOrDefault<float>(spawn, "y", 0.0f);
+        cfg.safeZ = getOrDefault<float>(spawn, "z", 0.0f);
+        cfg.safeYaw = getOrDefault<float>(spawn, "yaw", 0.0f);
+    }
+    
+    // Auto-save interval (optional, default 30s)
+    cfg.autosaveIntervalSec = getOrDefault<float>(j, "autosave_interval_sec", 30.0f);
+    
+    // Interest management (optional, defaults: broadcast_full_state=true, interest_radius=2000.0)
+    cfg.broadcastFullState = getOrDefault<bool>(j, "broadcast_full_state", true);
+    cfg.interestRadius = getOrDefault<float>(j, "interest_radius", 2000.0f);
+    cfg.debugInterest = getOrDefault<bool>(j, "debug_interest", false);
+    
+    // Validation
+    if (cfg.autosaveIntervalSec <= 0.0f) {
+        std::string msg = std::string{"Invalid autosave_interval_sec in ZoneConfig: "} + std::to_string(cfg.autosaveIntervalSec);
+        logError("Config", msg);
+        throw std::runtime_error(msg);
+    }
+    
+    if (cfg.interestRadius < 0.0f) {
+        std::string msg = std::string{"Invalid interest_radius in ZoneConfig: "} + std::to_string(cfg.interestRadius);
+        logError("Config", msg);
+        throw std::runtime_error(msg);
+    }
+    
+    if (cfg.zoneName.empty()) {
+        std::string msg = "ZoneConfig zoneName cannot be empty";
+        logError("Config", msg);
+        throw std::runtime_error(msg);
+    }
+
+    logInfo("Config", std::string{"ZoneConfig loaded: zoneId="} + std::to_string(cfg.zoneId) + 
+            ", zoneName=" + cfg.zoneName + 
+            ", safeSpawn=(" + std::to_string(cfg.safeX) + "," + std::to_string(cfg.safeY) + "," + std::to_string(cfg.safeZ) + ")" +
+            ", autosaveIntervalSec=" + std::to_string(cfg.autosaveIntervalSec) +
+            ", broadcastFullState=" + (cfg.broadcastFullState ? "true" : "false") +
+            ", interestRadius=" + std::to_string(cfg.interestRadius) +
+            ", debugInterest=" + (cfg.debugInterest ? "true" : "false"));
+    
+    return cfg;
+}
+
 } // namespace req::shared
