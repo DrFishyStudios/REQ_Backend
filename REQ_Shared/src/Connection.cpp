@@ -29,13 +29,20 @@ void Connection::doReadHeader() {
         boost::asio::buffer(&incomingHeader_, sizeof(incomingHeader_)),
         [self](boost::system::error_code ec, std::size_t bytes) {
             if (ec) {
-                req::shared::logError("net", std::string{"Read header error: "} + ec.message());
-                self->close();
+                if (ec == boost::asio::error::eof) {
+                    req::shared::logInfo("net", "Connection closed by peer (EOF)");
+                } else if (ec == boost::asio::error::operation_aborted) {
+                    req::shared::logInfo("net", "Read operation cancelled (connection closing)");
+                } else {
+                    req::shared::logWarn("net", std::string{"Read header error: "} + ec.message() + 
+                        " (code: " + std::to_string(ec.value()) + ")");
+                }
+                self->closeInternal("read header error: " + ec.message());
                 return;
             }
             if (bytes != sizeof(req::shared::MessageHeader)) {
                 req::shared::logWarn("net", "Partial header read; closing connection");
-                self->close();
+                self->closeInternal("partial header read");
                 return;
             }
 
@@ -71,13 +78,19 @@ void Connection::doReadBody() {
         boost::asio::buffer(self->incomingBody_.data(), self->incomingBody_.size()),
         [self](boost::system::error_code ec, std::size_t bytes) {
             if (ec) {
-                req::shared::logError("net", std::string{"Read body error: "} + ec.message());
-                self->close();
+                if (ec == boost::asio::error::eof) {
+                    req::shared::logInfo("net", "Connection closed by peer (EOF during body read)");
+                } else if (ec == boost::asio::error::operation_aborted) {
+                    req::shared::logInfo("net", "Read body operation cancelled");
+                } else {
+                    req::shared::logWarn("net", std::string{"Read body error: "} + ec.message());
+                }
+                self->closeInternal("read body error: " + ec.message());
                 return;
             }
             if (bytes != self->incomingBody_.size()) {
                 req::shared::logWarn("net", "Partial body read; closing connection");
-                self->close();
+                self->closeInternal("partial body read");
                 return;
             }
 
@@ -125,8 +138,14 @@ void Connection::doWrite() {
         buffers,
         [self](boost::system::error_code ec, std::size_t /*bytes*/) {
             if (ec) {
-                req::shared::logError("net", std::string{"Write error: "} + ec.message());
-                self->close();
+                if (ec == boost::asio::error::eof) {
+                    req::shared::logInfo("net", "Connection closed by peer during write");
+                } else if (ec == boost::asio::error::operation_aborted) {
+                    req::shared::logInfo("net", "Write operation cancelled");
+                } else {
+                    req::shared::logWarn("net", std::string{"Write error: "} + ec.message());
+                }
+                self->closeInternal("write error: " + ec.message());
                 return;
             }
             self->writeQueue_.pop_front();
@@ -140,14 +159,51 @@ void Connection::doWrite() {
 }
 
 void Connection::close() {
-    boost::system::error_code ec;
-    socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-    socket_.close(ec);
-    req::shared::logInfo("net", "Connection closed");
+    closeInternal("explicit close() call");
+}
+
+void Connection::closeInternal(const std::string& reason) {
+    // Prevent double-close
+    if (closed_) {
+        return;
+    }
+    closed_ = true;
     
-    // Notify disconnect handler if set
+    req::shared::logInfo("net", std::string{"[DISCONNECT] Connection closing: reason="} + reason);
+    
+    // Cancel any pending async operations
+    boost::system::error_code ec;
+    socket_.cancel(ec);
+    if (ec) {
+        req::shared::logWarn("net", std::string{"Error cancelling socket operations: "} + ec.message());
+    }
+    
+    // Shutdown socket
+    socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+    if (ec && ec != boost::asio::error::not_connected) {
+        req::shared::logWarn("net", std::string{"Error shutting down socket: "} + ec.message());
+    }
+    
+    // Close socket
+    socket_.close(ec);
+    if (ec) {
+        req::shared::logWarn("net", std::string{"Error closing socket: "} + ec.message());
+    }
+    
+    req::shared::logInfo("net", "[DISCONNECT] Socket closed successfully");
+    
+    // Notify disconnect handler if set (only once)
     if (onDisconnect_) {
-        onDisconnect_(shared_from_this());
+        req::shared::logInfo("net", "[DISCONNECT] Notifying disconnect handler");
+        try {
+            auto callback = std::move(onDisconnect_);
+            onDisconnect_ = nullptr; // Clear to prevent re-entry
+            callback(shared_from_this());
+        } catch (const std::exception& e) {
+            req::shared::logError("net", std::string{"Exception in disconnect handler: "} + e.what());
+        } catch (...) {
+            req::shared::logError("net", "Unknown exception in disconnect handler");
+        }
     }
 }
 

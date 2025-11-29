@@ -31,11 +31,17 @@ public:
     void close();
     void setMessageHandler(MessageHandler handler);
     void setDisconnectHandler(DisconnectHandler handler);
+    
+    // Check if connection is closed
+    bool isClosed() const { return closed_; }
 
 private:
     void doReadHeader();
     void doReadBody();
     void doWrite();
+    
+    // Internal close that can be called multiple times safely
+    void closeInternal(const std::string& reason);
 
     Tcp::socket          socket_;
     req::shared::MessageHeader incomingHeader_{};
@@ -48,6 +54,7 @@ private:
 
     std::deque<OutgoingMessage> writeQueue_;
     bool                        writeInProgress_{ false };
+    bool                        closed_{ false };  // Track if connection is closed
 
     MessageHandler              onMessage_;
     DisconnectHandler           onDisconnect_;

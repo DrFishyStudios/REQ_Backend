@@ -466,17 +466,36 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         auto it = players_.find(intent.characterId);
         if (it == players_.end()) {
             req::shared::logWarn("zone", std::string{"MovementIntent for unknown characterId="} + 
-                std::to_string(intent.characterId));
+                std::to_string(intent.characterId) + " (player not in zone or already disconnected)");
             return;
         }
         
         ZonePlayer& player = it->second;
         
+        // Verify connection is still valid
+        if (!player.connection) {
+            req::shared::logWarn("zone", std::string{"MovementIntent for characterId="} +
+                std::to_string(intent.characterId) + " but connection is null (disconnecting?)");
+            return;
+        }
+        
+        // Verify this message came from the correct connection
+        if (player.connection != connection) {
+            req::shared::logWarn("zone", std::string{"MovementIntent for characterId="} +
+                std::to_string(intent.characterId) + " from wrong connection (possible hijack attempt)");
+            return;
+        }
+        
+        // Verify player is initialized
+        if (!player.isInitialized) {
+            req::shared::logWarn("zone", std::string{"MovementIntent for uninitialized characterId="} +
+                std::to_string(intent.characterId));
+            return;
+        }
+        
         // Validate sequence number (ignore old/duplicate packets)
         if (intent.sequenceNumber <= player.lastSequenceNumber) {
-            req::shared::logInfo("zone", std::string{"MovementIntent: out-of-order or duplicate, seq="} + 
-                std::to_string(intent.sequenceNumber) + " <= last=" + std::to_string(player.lastSequenceNumber) +
-                " for characterId=" + std::to_string(intent.characterId));
+            // This is normal for out-of-order packets, don't log at warn level
             return;
         }
         
@@ -491,12 +510,6 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         while (player.yawDegrees >= 360.0f) player.yawDegrees -= 360.0f;
         
         player.lastSequenceNumber = intent.sequenceNumber;
-        
-        // Log at info level (can be disabled in production)
-        // req::shared::logInfo("zone", std::string{"MovementIntent: characterId="} + 
-        //     std::to_string(intent.characterId) + ", seq=" + std::to_string(intent.sequenceNumber) +
-        //     ", input=(" + std::to_string(player.inputX) + "," + std::to_string(player.inputY) + ")" +
-        //     ", yaw=" + std::to_string(player.yawDegrees) + ", jump=" + (player.isJumpPressed ? "1" : "0"));
         
         break;
     }
@@ -524,41 +537,61 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         auto attackerIt = players_.find(request.attackerCharacterId);
         if (attackerIt == players_.end()) {
             req::shared::logWarn("zone", std::string{"[COMBAT] Invalid attacker: characterId="} +
-                std::to_string(request.attackerCharacterId) + " not found");
+                std::to_string(request.attackerCharacterId) + " not found (disconnected or never entered zone)");
             
-            req::shared::protocol::AttackResultData result;
-            result.attackerId = request.attackerCharacterId;
-            result.targetId = request.targetId;
-            result.damage = 0;
-            result.wasHit = false;
-            result.remainingHp = 0;
-            result.resultCode = 2; // Not owner / invalid attacker
-            result.message = "Invalid attacker";
-            
-            std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
-            req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
-            connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            // Send error response if connection is still valid
+            if (connection) {
+                req::shared::protocol::AttackResultData result;
+                result.attackerId = request.attackerCharacterId;
+                result.targetId = request.targetId;
+                result.damage = 0;
+                result.wasHit = false;
+                result.remainingHp = 0;
+                result.resultCode = 2; // Not owner / invalid attacker
+                result.message = "Invalid attacker";
+                
+                try {
+                    std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
+                    req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
+                    connection->send(req::shared::MessageType::AttackResult, resultBytes);
+                } catch (const std::exception& e) {
+                    req::shared::logError("zone", std::string{"[COMBAT] Failed to send error response: "} + e.what());
+                }
+            }
             return;
         }
         
         // Validate connection owns the attacker
         auto& attacker = attackerIt->second;
+        
+        // Check if connection is still valid
+        if (!attacker.connection) {
+            req::shared::logWarn("zone", std::string{"[COMBAT] Attacker connection is null: characterId="} +
+                std::to_string(request.attackerCharacterId));
+            return;
+        }
+        
         if (attacker.connection != connection) {
             req::shared::logWarn("zone", std::string{"[COMBAT] Connection doesn't own attacker: characterId="} +
-                std::to_string(request.attackerCharacterId));
+                std::to_string(request.attackerCharacterId) + " (possible hijack attempt)");
             
-            req::shared::protocol::AttackResultData result;
-            result.attackerId = request.attackerCharacterId;
-            result.targetId = request.targetId;
-            result.damage = 0;
-            result.wasHit = false;
-            result.remainingHp = 0;
-            result.resultCode = 2; // Not owner
-            result.message = "Not your character";
-            
-            std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
-            req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
-            connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            // Send error response
+            try {
+                req::shared::protocol::AttackResultData result;
+                result.attackerId = request.attackerCharacterId;
+                result.targetId = request.targetId;
+                result.damage = 0;
+                result.wasHit = false;
+                result.remainingHp = 0;
+                result.resultCode = 2; // Not owner
+                result.message = "Not your character";
+                
+                std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
+                req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
+                connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            } catch (const std::exception& e) {
+                req::shared::logError("zone", std::string{"[COMBAT] Failed to send error response: "} + e.what());
+            }
             return;
         }
         
@@ -568,23 +601,31 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
             req::shared::logWarn("zone", std::string{"[COMBAT] Invalid target: npcId="} +
                 std::to_string(request.targetId) + " not found");
             
-            req::shared::protocol::AttackResultData result;
-            result.attackerId = request.attackerCharacterId;
-            result.targetId = request.targetId;
-            result.damage = 0;
-            result.wasHit = false;
-            result.remainingHp = 0;
-            result.resultCode = 1; // Invalid target
-            result.message = "Invalid target";
-            
-            std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
-            req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
-            connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            try {
+                req::shared::protocol::AttackResultData result;
+                result.attackerId = request.attackerCharacterId;
+                result.targetId = request.targetId;
+                result.damage = 0;
+                result.wasHit = false;
+                result.remainingHp = 0;
+                result.resultCode = 1; // Invalid target
+                result.message = "Invalid target";
+                
+                std::string resultPayload = req::shared::protocol::buildAttackResultPayload(result);
+                req::shared::net::Connection::ByteArray resultBytes(resultPayload.begin(), resultPayload.end());
+                connection->send(req::shared::MessageType::AttackResult, resultBytes);
+            } catch (const std::exception& e) {
+                req::shared::logError("zone", std::string{"[COMBAT] Failed to send error response: "} + e.what());
+            }
             return;
         }
         
-        // Process the attack
-        processAttack(attacker, targetIt->second, request);
+        // Process the attack (wrapped in try-catch in processAttack)
+        try {
+            processAttack(attacker, targetIt->second, request);
+        } catch (const std::exception& e) {
+            req::shared::logError("zone", std::string{"[COMBAT] Exception during processAttack: "} + e.what());
+        }
         break;
     }
     
@@ -769,12 +810,27 @@ void ZoneServer::broadcastSnapshots() {
         std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
         req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
         
-        // Broadcast to all connected clients
+        // Broadcast to all connected clients (with safety checks)
         int sentCount = 0;
+        int failedCount = 0;
         for (auto& connection : connections_) {
-            if (connection) {
+            if (!connection) {
+                failedCount++;
+                continue;
+            }
+            
+            // Check if connection is closed
+            if (connection->isClosed()) {
+                failedCount++;
+                continue;
+            }
+            
+            try {
                 connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
                 sentCount++;
+            } catch (const std::exception& e) {
+                req::shared::logWarn("zone", std::string{"[Snapshot] Failed to send to connection: "} + e.what());
+                failedCount++;
             }
         }
         
@@ -782,14 +838,21 @@ void ZoneServer::broadcastSnapshots() {
         if (logCounter % 100 == 0) {
             req::shared::logInfo("zone", std::string{"[Snapshot] Broadcast snapshot "} + 
                 std::to_string(snapshot.snapshotId) + " with " + std::to_string(snapshot.players.size()) + 
-                " player(s) to " + std::to_string(sentCount) + " connection(s) [FULL BROADCAST]");
+                " player(s) to " + std::to_string(sentCount) + " connection(s) [FULL BROADCAST]" +
+                (failedCount > 0 ? " (failed: " + std::to_string(failedCount) + ")" : ""));
         }
     } else {
         // Interest-based filtering: build per-recipient snapshots
         int totalSent = 0;
+        int totalFailed = 0;
         
         for (auto& [recipientCharId, recipientPlayer] : players_) {
             if (!recipientPlayer.isInitialized || !recipientPlayer.connection) {
+                continue;
+            }
+            
+            // Check if connection is still valid
+            if (recipientPlayer.connection->isClosed()) {
                 continue;
             }
             
@@ -851,12 +914,18 @@ void ZoneServer::broadcastSnapshots() {
                     " (out of " + std::to_string(players_.size()) + " total)");
             }
             
-            // Build payload and send to this recipient
-            std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
-            req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
-            
-            recipientPlayer.connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
-            totalSent++;
+            // Build payload and send to this recipient (with error handling)
+            try {
+                std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
+                req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
+                
+                recipientPlayer.connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
+                totalSent++;
+            } catch (const std::exception& e) {
+                req::shared::logWarn("zone", std::string{"[Snapshot] Failed to send to characterId="} +
+                    std::to_string(recipientCharId) + ": " + e.what());
+                totalFailed++;
+            }
         }
         
         // Log broadcast summary (periodic)
@@ -864,7 +933,8 @@ void ZoneServer::broadcastSnapshots() {
             req::shared::logInfo("zone", std::string{"[Snapshot] Broadcast snapshot "} + 
                 std::to_string(snapshotCounter_) + " with INTEREST FILTERING to " + 
                 std::to_string(totalSent) + " client(s) [radius=" + 
-                std::to_string(zoneConfig_.interestRadius) + "]");
+                std::to_string(zoneConfig_.interestRadius) + "]" +
+                (totalFailed > 0 ? " (failed: " + std::to_string(totalFailed) + ")" : ""));
         }
     }
 }
@@ -945,135 +1015,220 @@ void ZoneServer::setZoneConfig(const ZoneConfig& config) {
 void ZoneServer::savePlayerPosition(std::uint64_t characterId) {
     auto playerIt = players_.find(characterId);
     if (playerIt == players_.end()) {
+        req::shared::logWarn("zone", std::string{"[SAVE] Player not found in map: characterId="} +
+            std::to_string(characterId));
         return;
     }
     
     const ZonePlayer& player = playerIt->second;
     
-    // Load character from disk
-    auto character = characterStore_.loadById(characterId);
-    if (!character.has_value()) {
-        req::shared::logWarn("zone", std::string{"[SAVE] Cannot save position - character not found: characterId="} +
+    // Wrap entire save operation in try-catch
+    try {
+        // Load character from disk
+        auto character = characterStore_.loadById(characterId);
+        if (!character.has_value()) {
+            req::shared::logWarn("zone", std::string{"[SAVE] Cannot save position - character not found on disk: characterId="} +
+                std::to_string(characterId));
+            return;
+        }
+        
+        // Update position fields
+        character->lastWorldId = worldId_;
+        character->lastZoneId = zoneId_;
+        character->positionX = player.posX;
+        character->positionY = player.posY;
+        character->positionZ = player.posZ;
+        character->heading = player.yawDegrees;
+        
+        // Update combat state if dirty
+        if (player.combatStatsDirty) {
+            character->level = player.level;
+            character->hp = player.hp;
+            character->maxHp = player.maxHp;
+            character->mana = player.mana;
+            character->maxMana = player.maxMana;
+            
+            character->strength = player.strength;
+            character->stamina = player.stamina;
+            character->agility = player.agility;
+            character->dexterity = player.dexterity;
+            character->intelligence = player.intelligence;
+            character->wisdom = player.wisdom;
+            character->charisma = player.charisma;
+            
+            req::shared::logInfo("zone", std::string{"[SAVE] Combat stats saved: characterId="} +
+                std::to_string(characterId) + ", hp=" + std::to_string(player.hp) + "/" +
+                std::to_string(player.maxHp) + ", mana=" + std::to_string(player.mana) + "/" +
+                std::to_string(player.maxMana));
+        }
+        
+        // Save to disk
+        if (characterStore_.saveCharacter(*character)) {
+            req::shared::logInfo("zone", std::string{"[SAVE] Position saved successfully: characterId="} +
+                std::to_string(characterId) + ", zoneId=" + std::to_string(zoneId_) +
+                ", pos=(" + std::to_string(player.posX) + "," + std::to_string(player.posY) + "," +
+                std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees));
+            
+            // Mark as clean after successful save
+            playerIt->second.isDirty = false;
+            playerIt->second.combatStatsDirty = false;
+        } else {
+            req::shared::logError("zone", std::string{"[SAVE] Failed to save character to disk: characterId="} +
+                std::to_string(characterId));
+        }
+    } catch (const std::exception& e) {
+        req::shared::logError("zone", std::string{"[SAVE] Exception during save: characterId="} +
+            std::to_string(characterId) + ", error: " + e.what());
+        // Don't rethrow - just log and return
+    } catch (...) {
+        req::shared::logError("zone", std::string{"[SAVE] Unknown exception during save: characterId="} +
             std::to_string(characterId));
-        return;
-    }
-    
-    // Update position fields
-    character->lastWorldId = worldId_;
-    character->lastZoneId = zoneId_;
-    character->positionX = player.posX;
-    character->positionY = player.posY;
-    character->positionZ = player.posZ;
-    character->heading = player.yawDegrees;
-    
-    // Update combat state if dirty
-    if (player.combatStatsDirty) {
-        character->level = player.level;
-        character->hp = player.hp;
-        character->maxHp = player.maxHp;
-        character->mana = player.mana;
-        character->maxMana = player.maxMana;
-        
-        character->strength = player.strength;
-        character->stamina = player.stamina;
-        character->agility = player.agility;
-        character->dexterity = player.dexterity;
-        character->intelligence = player.intelligence;
-        character->wisdom = player.wisdom;
-        character->charisma = player.charisma;
-        
-        req::shared::logInfo("zone", std::string{"[SAVE] Combat stats saved: characterId="} +
-            std::to_string(characterId) + ", hp=" + std::to_string(player.hp) + "/" +
-            std::to_string(player.maxHp) + ", mana=" + std::to_string(player.mana) + "/" +
-            std::to_string(player.maxMana));
-    }
-    
-    // Save to disk
-    if (characterStore_.saveCharacter(*character)) {
-        req::shared::logInfo("zone", std::string{"[SAVE] Position saved: characterId="} +
-            std::to_string(characterId) + ", zoneId=" + std::to_string(zoneId_) +
-            ", pos=(" + std::to_string(player.posX) + "," + std::to_string(player.posY) + "," +
-            std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees));
-        
-        // Mark as clean after successful save
-        playerIt->second.isDirty = false;
-        playerIt->second.combatStatsDirty = false;
-    } else {
-        req::shared::logError("zone", std::string{"[SAVE] Failed to save character position: characterId="} +
-            std::to_string(characterId));
+        // Don't rethrow - just log and return
     }
 }
 
 void ZoneServer::saveAllPlayerPositions() {
     int savedCount = 0;
     int skippedCount = 0;
+    int failedCount = 0;
+    
+    req::shared::logInfo("zone", "[AUTOSAVE] Beginning autosave of dirty player positions");
     
     for (auto& [characterId, player] : players_) {
-        if (!player.isInitialized || (!player.isDirty && !player.combatStatsDirty)) {
+        if (!player.isInitialized) {
             skippedCount++;
             continue;
         }
         
-        savePlayerPosition(characterId);
-        savedCount++;
+        if (!player.isDirty && !player.combatStatsDirty) {
+            skippedCount++;
+            continue;
+        }
+        
+        try {
+            savePlayerPosition(characterId);
+            savedCount++;
+        } catch (const std::exception& e) {
+            req::shared::logError("zone", std::string{"[AUTOSAVE] Exception saving characterId="} +
+                std::to_string(characterId) + ": " + e.what());
+            failedCount++;
+        } catch (...) {
+            req::shared::logError("zone", std::string{"[AUTOSAVE] Unknown exception saving characterId="} +
+                std::to_string(characterId));
+            failedCount++;
+        }
     }
     
-    if (savedCount > 0) {
-        req::shared::logInfo("zone", std::string{"[AUTOSAVE] Saved positions for "} +
-            std::to_string(savedCount) + " player(s), skipped " + std::to_string(skippedCount));
+    if (savedCount > 0 || failedCount > 0) {
+        req::shared::logInfo("zone", std::string{"[AUTOSAVE] Complete: saved="} +
+            std::to_string(savedCount) + ", skipped=" + std::to_string(skippedCount) +
+            ", failed=" + std::to_string(failedCount));
     }
 }
 
 void ZoneServer::removePlayer(std::uint64_t characterId) {
+    req::shared::logInfo("zone", std::string{"[REMOVE_PLAYER] BEGIN: characterId="} + 
+        std::to_string(characterId));
+    
     auto it = players_.find(characterId);
     if (it == players_.end()) {
-        req::shared::logWarn("zone", std::string{"[removePlayer] Character not found: characterId="} +
+        req::shared::logWarn("zone", std::string{"[REMOVE_PLAYER] Character not found in players map: characterId="} +
             std::to_string(characterId));
+        req::shared::logInfo("zone", "[REMOVE_PLAYER] END (player not found)");
         return;
     }
     
     const ZonePlayer& player = it->second;
     
-    // Save final position before removing
-    req::shared::logInfo("zone", std::string{"[DISCONNECT] Saving final position for characterId="} +
-        std::to_string(characterId));
-    savePlayerPosition(characterId);
+    req::shared::logInfo("zone", std::string{"[REMOVE_PLAYER] Found player: accountId="} +
+        std::to_string(player.accountId) + ", pos=(" + std::to_string(player.posX) + "," +
+        std::to_string(player.posY) + "," + std::to_string(player.posZ) + ")");
     
-    // Remove from connection mapping
+    // Save final position before removing (wrapped in try-catch)
+    req::shared::logInfo("zone", "[REMOVE_PLAYER] Attempting to save character state...");
+    try {
+        savePlayerPosition(characterId);
+        req::shared::logInfo("zone", "[REMOVE_PLAYER] Character state saved successfully");
+    } catch (const std::exception& e) {
+        req::shared::logError("zone", std::string{"[REMOVE_PLAYER] Exception during savePlayerPosition: "} + 
+            e.what());
+        req::shared::logError("zone", "[REMOVE_PLAYER] Continuing with player removal despite save failure");
+    } catch (...) {
+        req::shared::logError("zone", "[REMOVE_PLAYER] Unknown exception during savePlayerPosition");
+        req::shared::logError("zone", "[REMOVE_PLAYER] Continuing with player removal despite save failure");
+    }
+    
+    // Remove from connection mapping (if connection still exists)
     if (player.connection) {
-        connectionToCharacterId_.erase(player.connection);
+        auto connIt = connectionToCharacterId_.find(player.connection);
+        if (connIt != connectionToCharacterId_.end()) {
+            connectionToCharacterId_.erase(connIt);
+            req::shared::logInfo("zone", "[REMOVE_PLAYER] Removed from connection mapping");
+        }
     }
     
     // Remove from players map
     players_.erase(it);
+    req::shared::logInfo("zone", "[REMOVE_PLAYER] Removed from players map");
     
-    req::shared::logInfo("zone", std::string{"[ZonePlayer removed] characterId="} +
-        std::to_string(characterId) + ", reason=disconnect" +
-        ", remaining_players=" + std::to_string(players_.size()));
+    req::shared::logInfo("zone", std::string{"[REMOVE_PLAYER] END: characterId="} +
+        std::to_string(characterId) + ", remaining_players=" + std::to_string(players_.size()));
 }
+
 void ZoneServer::onConnectionClosed(ConnectionPtr connection) {
-    req::shared::logInfo("zone", "[Connection] Connection closed, checking for associated ZonePlayer");
+    req::shared::logInfo("zone", "[DISCONNECT] ========== BEGIN DISCONNECT HANDLING ==========");
+    req::shared::logInfo("zone", "[DISCONNECT] Connection closed event received");
+    
+    // Get remote endpoint info for logging (if still available)
+    try {
+        if (connection && connection->isClosed()) {
+            req::shared::logInfo("zone", "[DISCONNECT] Connection is marked as closed");
+        }
+    } catch (const std::exception& e) {
+        req::shared::logWarn("zone", std::string{"[DISCONNECT] Error checking connection state: "} + e.what());
+    }
     
     // Find character ID for this connection
     auto it = connectionToCharacterId_.find(connection);
     if (it != connectionToCharacterId_.end()) {
         std::uint64_t characterId = it->second;
-        req::shared::logInfo("zone", std::string{"[Connection] Found characterId="} + 
-            std::to_string(characterId) + " for closed connection");
+        req::shared::logInfo("zone", std::string{"[DISCONNECT] Found ZonePlayer: characterId="} + 
+            std::to_string(characterId));
+        
+        // Check if player exists
+        auto playerIt = players_.find(characterId);
+        if (playerIt != players_.end()) {
+            req::shared::logInfo("zone", std::string{"[DISCONNECT] Player found in players map, accountId="} +
+                std::to_string(playerIt->second.accountId) + 
+                ", pos=(" + std::to_string(playerIt->second.posX) + "," + 
+                std::to_string(playerIt->second.posY) + "," + 
+                std::to_string(playerIt->second.posZ) + ")");
+        } else {
+            req::shared::logWarn("zone", std::string{"[DISCONNECT] CharacterId "} + 
+                std::to_string(characterId) + " found in connection map but not in players map (inconsistent state)");
+        }
+        
+        // Remove player (with safe save)
         removePlayer(characterId);
+        
+        // Remove from connection mapping
         connectionToCharacterId_.erase(it);
+        req::shared::logInfo("zone", "[DISCONNECT] Removed from connection-to-character mapping");
     } else {
-        req::shared::logInfo("zone", "[Connection] No ZonePlayer found for closed connection (connection closed before ZoneAuth)");
+        req::shared::logInfo("zone", "[DISCONNECT] No ZonePlayer associated with this connection");
+        req::shared::logInfo("zone", "[DISCONNECT] Likely disconnected before completing ZoneAuthRequest");
     }
     
     // Remove from connections list
-    connections_.erase(
-        std::remove(connections_.begin(), connections_.end(), connection),
-        connections_.end()
-    );
+    auto connIt = std::find(connections_.begin(), connections_.end(), connection);
+    if (connIt != connections_.end()) {
+        connections_.erase(connIt);
+        req::shared::logInfo("zone", "[DISCONNECT] Removed from connections list");
+    }
     
-    req::shared::logInfo("zone", std::string{"[Connection] Connection cleanup complete, total connections="} +
-        std::to_string(connections_.size()));
+    req::shared::logInfo("zone", std::string{"[DISCONNECT] Cleanup complete. Active connections="} +
+        std::to_string(connections_.size()) + ", active players=" + std::to_string(players_.size()));
+    req::shared::logInfo("zone", "[DISCONNECT] ========== END DISCONNECT HANDLING ==========");
 }
 
 void ZoneServer::scheduleAutosave() {
@@ -1094,13 +1249,21 @@ void ZoneServer::onAutosave(const boost::system::error_code& ec) {
     
     if (ec) {
         req::shared::logError("zone", std::string{"Autosave timer error: "} + ec.message());
+        // Continue with next autosave anyway
+        scheduleAutosave();
         return;
     }
     
-    // Save all dirty player positions
-    saveAllPlayerPositions();
+    // Save all dirty player positions (wrapped in try-catch)
+    try {
+        saveAllPlayerPositions();
+    } catch (const std::exception& e) {
+        req::shared::logError("zone", std::string{"[AUTOSAVE] Exception during autosave: "} + e.what());
+    } catch (...) {
+        req::shared::logError("zone", "[AUTOSAVE] Unknown exception during autosave");
+    }
     
-    // Schedule next autosave
+    // Always schedule next autosave, even if this one failed
     scheduleAutosave();
 }
 
