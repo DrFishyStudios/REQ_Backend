@@ -159,6 +159,53 @@ public:
      */
     void clearAllSessions();
     
+    /*
+     * Configure file-backed persistence
+     * 
+     * Enables file-backed session persistence and loads existing sessions
+     * from the specified file (if it exists).
+     * 
+     * This must be called before using the SessionService in a multi-process
+     * environment. Once configured, sessions are automatically loaded from
+     * the file, and you should call saveToFile() after creating sessions.
+     * 
+     * Thread-safe.
+     * 
+     * @param filePath - Path to JSON file for session persistence
+     */
+    void configure(const std::string& filePath);
+    
+    /*
+     * Check if file-backed persistence is configured
+     * 
+     * @return true if configure() has been called, false otherwise
+     */
+    bool isConfigured() const;
+    
+    /*
+     * Save sessions to configured file
+     * 
+     * Convenience method that saves to the file path set by configure().
+     * Does nothing if configure() hasn't been called.
+     * 
+     * Thread-safe.
+     * 
+     * @return true if saved successfully, false on error or not configured
+     */
+    bool saveToFile();
+    
+    /*
+     * Load sessions from configured file
+     * 
+     * Convenience method that loads from the file path set by configure().
+     * Does nothing if configure() hasn't been called.
+     * 
+     * Thread-safe.
+     * 
+     * @return true if loaded successfully, false on error or not configured
+     */
+    bool loadFromFile();
+    
     // Optional: JSON persistence for development/debugging
     // Note: These are basic implementations and not optimized for production
     
@@ -197,6 +244,10 @@ private:
     
     // Session storage
     std::unordered_map<std::uint64_t, SessionRecord> sessions_;
+    
+    // File-backed persistence
+    std::string sessionsFilePath_;
+    bool configured_{ false };
     
     // Thread safety
     mutable std::mutex mutex_;

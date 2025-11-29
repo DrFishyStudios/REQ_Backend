@@ -213,6 +213,9 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
         // Generate session token using SessionService
         auto& sessionService = req::shared::SessionService::instance();
         auto token = sessionService.createSession(accountId);
+        
+        // Save session to file for cross-process sharing
+        sessionService.saveToFile();
 
         // Build world list from worlds_ (loaded from worlds.json)
         std::vector<req::shared::protocol::WorldListEntry> worldEntries;

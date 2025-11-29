@@ -4,6 +4,7 @@
 
 #include "../../REQ_Shared/include/req/shared/Logger.h"
 #include "../../REQ_Shared/include/req/shared/Config.h"
+#include "../../REQ_Shared/include/req/shared/SessionService.h"
 #include "../include/req/world/WorldServer.h"
 
 namespace {
@@ -57,6 +58,12 @@ int main(int argc, char* argv[]) {
         // Initialize with CharacterStore path
         const std::string charactersPath = "data/characters";
         req::shared::logInfo("Main", std::string{"Using characters path: "} + charactersPath);
+
+        // Configure SessionService with file-backed persistence
+        const std::string sessionsPath = "data/sessions.json";
+        req::shared::logInfo("Main", std::string{"Configuring SessionService with file: "} + sessionsPath);
+        auto& sessionService = req::shared::SessionService::instance();
+        sessionService.configure(sessionsPath);
 
         req::world::WorldServer server(config, charactersPath);
         

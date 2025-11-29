@@ -155,13 +155,76 @@ void SessionService::clearAllSessions() {
     logInfo("SessionService", std::string{"All sessions cleared: count="} + std::to_string(count));
 }
 
+void SessionService::configure(const std::string& filePath) {
+    std::scoped_lock lock(mutex_);
+    
+    sessionsFilePath_ = filePath;
+    configured_ = true;
+    
+    logInfo("SessionService", std::string{"Configuring SessionService with file: "} + filePath);
+    
+    // Try to load existing sessions from file
+    // Unlock mutex temporarily to call loadFromFile(path) which will re-lock
+    mutex_.unlock();
+    bool loaded = loadFromFile(filePath);
+    mutex_.lock();
+    
+    if (loaded) {
+        logInfo("SessionService", std::string{"Configured with file '"} + filePath + 
+            "', loaded " + std::to_string(sessions_.size()) + " session(s)");
+    } else {
+        logInfo("SessionService", std::string{"Configured with file '"} + filePath + 
+            "' (no existing sessions or file not found)");
+    }
+}
+
+bool SessionService::isConfigured() const {
+    std::scoped_lock lock(mutex_);
+    return configured_;
+}
+
+bool SessionService::saveToFile() {
+    std::scoped_lock lock(mutex_);
+    
+    if (!configured_) {
+        logWarn("SessionService", "Cannot save: SessionService not configured with file path");
+        return false;
+    }
+    
+    // Unlock and call the path-based saveToFile
+    std::string path = sessionsFilePath_;
+    mutex_.unlock();
+    bool result = saveToFile(path);
+    mutex_.lock();
+    
+    return result;
+}
+
+bool SessionService::loadFromFile() {
+    std::scoped_lock lock(mutex_);
+    
+    if (!configured_) {
+        logWarn("SessionService", "Cannot load: SessionService not configured with file path");
+        return false;
+    }
+    
+    // Unlock and call the path-based loadFromFile
+    std::string path = sessionsFilePath_;
+    mutex_.unlock();
+    bool result = loadFromFile(path);
+    mutex_.lock();
+    
+    return result;
+}
+
 bool SessionService::loadFromFile(const std::string& path) {
     std::scoped_lock lock(mutex_);
     
     std::ifstream file(path);
     if (!file.is_open()) {
-        logError("SessionService", std::string{"Failed to open session file for reading: "} + path);
-        return false;
+        // File doesn't exist - not an error, just means no sessions yet
+        logInfo("SessionService", std::string{"Session file not found (will be created on first save): "} + path);
+        return true;
     }
     
     // Read entire file
@@ -169,7 +232,7 @@ bool SessionService::loadFromFile(const std::string& path) {
     file.close();
     
     if (content.empty()) {
-        logWarn("SessionService", std::string{"Session file is empty: "} + path);
+        logInfo("SessionService", std::string{"Session file is empty: "} + path);
         return true; // Not an error, just no sessions to load
     }
     
@@ -291,6 +354,21 @@ bool SessionService::loadFromFile(const std::string& path) {
 
 bool SessionService::saveToFile(const std::string& path) const {
     std::scoped_lock lock(mutex_);
+    
+    // Create directory if it doesn't exist
+    std::size_t lastSlash = path.find_last_of("/\\");
+    if (lastSlash != std::string::npos) {
+        std::string directory = path.substr(0, lastSlash);
+        
+        // Try to create directory (platform-specific)
+#ifdef _WIN32
+        std::string cmd = "if not exist \"" + directory + "\" mkdir \"" + directory + "\"";
+        system(cmd.c_str());
+#else
+        std::string cmd = "mkdir -p \"" + directory + "\"";
+        system(cmd.c_str());
+#endif
+    }
     
     std::ofstream file(path);
     if (!file.is_open()) {

@@ -249,7 +249,28 @@ req::shared::HandoffToken WorldServer::generateHandoffToken() {
 std::optional<std::uint64_t> WorldServer::resolveSessionToken(req::shared::SessionToken token) const {
     auto& sessionService = req::shared::SessionService::instance();
     
+    // First attempt: validate session from in-memory cache
     auto session = sessionService.validateSession(token);
+    
+    if (!session.has_value()) {
+        // Session not found in memory - try reloading from file
+        // This handles the case where LoginServer just wrote a new session
+        req::shared::logInfo("world", std::string{"Session not in memory, reloading from file: sessionToken="} + 
+            std::to_string(token));
+        
+        // Cast away const temporarily to call non-const loadFromFile
+        // This is safe since we're only modifying the SessionService singleton, not this WorldServer
+        const_cast<req::shared::SessionService&>(sessionService).loadFromFile();
+        
+        // Second attempt: validate session after reload
+        session = sessionService.validateSession(token);
+        
+        if (session.has_value()) {
+            req::shared::logInfo("world", std::string{"Session found after reload: sessionToken="} + 
+                std::to_string(token) + ", accountId=" + std::to_string(session->accountId));
+        }
+    }
+    
     if (session.has_value()) {
         return session->accountId;
     }

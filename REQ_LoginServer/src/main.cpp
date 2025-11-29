@@ -3,6 +3,7 @@
 
 #include "../../REQ_Shared/include/req/shared/Logger.h"
 #include "../../REQ_Shared/include/req/shared/Config.h"
+#include "../../REQ_Shared/include/req/shared/SessionService.h"
 #include "../include/req/login/LoginServer.h"
 
 // Forward declaration for test account creation utility
@@ -50,6 +51,12 @@ int main(int argc, char* argv[]) {
         // Initialize with AccountStore path
         const std::string accountsPath = "data/accounts";
         req::shared::logInfo("Main", std::string{"Using accounts path: "} + accountsPath);
+
+        // Configure SessionService with file-backed persistence
+        const std::string sessionsPath = "data/sessions.json";
+        req::shared::logInfo("Main", std::string{"Configuring SessionService with file: "} + sessionsPath);
+        auto& sessionService = req::shared::SessionService::instance();
+        sessionService.configure(sessionsPath);
 
         req::login::LoginServer server(config, worldList, accountsPath);
         server.run();
