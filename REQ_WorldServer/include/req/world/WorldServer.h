@@ -15,6 +15,7 @@
 #include "../../REQ_Shared/include/req/shared/Connection.h"
 #include "../../REQ_Shared/include/req/shared/Config.h"
 #include "../../REQ_Shared/include/req/shared/CharacterStore.h"
+#include "../../REQ_Shared/include/req/shared/AccountStore.h"
 
 namespace req::world {
 
@@ -25,6 +26,9 @@ public:
 
     void run();
     void stop();
+    
+    // CLI command interface
+    void runCLI();
 
 private:
     using Tcp = boost::asio::ip::tcp;
@@ -43,10 +47,15 @@ private:
     void launchConfiguredZones();
     bool spawnZoneProcess(const req::shared::WorldZoneConfig& zone);
     
-    // Session resolution helper
-    // TODO: Integrate with shared session service from LoginServer
-    // For now, returns stub accountId for testing
+    // Session resolution - uses SessionService from REQ_Shared
     std::optional<std::uint64_t> resolveSessionToken(req::shared::SessionToken token) const;
+    
+    // CLI command handlers
+    void handleCLICommand(const std::string& command);
+    void cmdListAccounts();
+    void cmdListChars(std::uint64_t accountId);
+    void cmdShowChar(std::uint64_t characterId);
+    void cmdHelp();
 
     boost::asio::io_context ioContext_{};
     Tcp::acceptor           acceptor_;
@@ -58,6 +67,9 @@ private:
     
     // Character persistence
     req::shared::CharacterStore characterStore_;
+    
+    // Account persistence
+    req::shared::AccountStore accountStore_;
 };
 
 } // namespace req::world

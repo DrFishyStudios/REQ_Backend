@@ -9,16 +9,40 @@
 
 #include "../../REQ_Shared/include/req/shared/Types.h"
 #include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
+#include "ClientStages.h"
 
 namespace req::testclient {
 
 class TestClient {
 public:
+    TestClient();
+    
     void run();
+    
+    // Scenario execution modes
+    void runHappyPathScenario();
+    void runBadPasswordTest();
+    void runBadSessionTokenTest();
+    void runBadHandoffTokenTest();
+    
+    // Negative test mode: sends intentionally invalid requests to verify error handling
+    void runNegativeTests();
 
 private:
     using Tcp = boost::asio::ip::tcp;
     using IoContext = boost::asio::io_context;
+    
+    // Stage management
+    EClientStage currentStage_;
+    void transitionStage(EClientStage newStage, const std::string& context = "");
+    
+    // Session state
+    req::shared::SessionToken sessionToken_;
+    std::uint64_t accountId_;  // Stub for now, will be resolved from session
+    req::shared::WorldId worldId_;
+    req::shared::HandoffToken handoffToken_;
+    req::shared::ZoneId zoneId_;
+    std::uint64_t selectedCharacterId_;
     
     bool doLogin(const std::string& username,
                  const std::string& password,
@@ -64,6 +88,10 @@ private:
     void runMovementTestLoop(std::shared_ptr<IoContext> ioContext,
                             std::shared_ptr<Tcp::socket> zoneSocket,
                             std::uint64_t localCharacterId);
+    
+    // Negative test helpers
+    bool testInvalidZoneAuth(const std::string& zoneHost, std::uint16_t zonePort);
+    bool testMalformedZoneAuth(const std::string& zoneHost, std::uint16_t zonePort);
 };
 
 } // namespace req::testclient

@@ -6,6 +6,7 @@
 #include "../../REQ_Shared/include/req/shared/Logger.h"
 #include "../../REQ_Shared/include/req/shared/MessageHeader.h"
 #include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
+#include "../../REQ_Shared/include/req/shared/SessionService.h"
 
 namespace req::login {
 
@@ -209,9 +210,9 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
                 ", accountId=" + std::to_string(accountId));
         }
 
-        // Generate session token and map to accountId
-        auto token = generateSessionToken();
-        sessionTokenToAccountId_[token] = accountId;
+        // Generate session token using SessionService
+        auto& sessionService = req::shared::SessionService::instance();
+        auto token = sessionService.createSession(accountId);
 
         // Build world list from worlds_ (loaded from worlds.json)
         std::vector<req::shared::protocol::WorldListEntry> worldEntries;

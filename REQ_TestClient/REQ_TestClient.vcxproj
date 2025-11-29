@@ -196,8 +196,11 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\TestClient.cpp" />
     <ClCompile Include="src\TestClient_Movement.cpp" />
+    <ClCompile Include="src\TestClient_NegativeTests.cpp" />
+    <ClCompile Include="src\TestClient_Scenarios.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\req\testclient\ClientStages.h" />
     <ClInclude Include="include\req\testclient\TestClient.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

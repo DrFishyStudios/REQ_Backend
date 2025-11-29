@@ -6,6 +6,7 @@
 #include "../../REQ_Shared/include/req/shared/Logger.h"
 #include "../../REQ_Shared/include/req/shared/MessageHeader.h"
 #include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
+#include "../../REQ_Shared/include/req/shared/DataModels.h"
 
 namespace req::zone {
 
@@ -28,10 +29,11 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
                        std::uint32_t zoneId,
                        const std::string& zoneName,
                        const std::string& address,
-                       std::uint16_t port)
-    : acceptor_(ioContext_), tickTimer_(ioContext_),
+                       std::uint16_t port,
+                       const std::string& charactersPath)
+    : acceptor_(ioContext_), tickTimer_(ioContext_), autosaveTimer_(ioContext_),
       worldId_(worldId), zoneId_(zoneId), zoneName_(zoneName), 
-      address_(address), port_(port) {
+      address_(address), port_(port), characterStore_(charactersPath) {
     using boost::asio::ip::tcp;
     boost::system::error_code ec;
     tcp::endpoint endpoint(boost::asio::ip::make_address(address_, ec), port_);
@@ -47,6 +49,15 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) { req::shared::logError("zone", std::string{"acceptor listen failed: "} + ec.message()); }
     
+    // Initialize zone config with defaults
+    zoneConfig_.zoneId = zoneId;
+    zoneConfig_.zoneName = zoneName;
+    zoneConfig_.safeX = 0.0f;
+    zoneConfig_.safeY = 0.0f;
+    zoneConfig_.safeZ = 0.0f;
+    zoneConfig_.safeYaw = 0.0f;
+    zoneConfig_.autosaveIntervalSec = 30.0f;
+    
     // Log ZoneServer construction
     req::shared::logInfo("zone", std::string{"ZoneServer constructed:"});
     req::shared::logInfo("zone", std::string{"  worldId="} + std::to_string(worldId_));
@@ -54,6 +65,7 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     req::shared::logInfo("zone", std::string{"  zoneName=\""} + zoneName_ + "\"");
     req::shared::logInfo("zone", std::string{"  address="} + address_);
     req::shared::logInfo("zone", std::string{"  port="} + std::to_string(port_));
+    req::shared::logInfo("zone", std::string{"  charactersPath="} + charactersPath);
     req::shared::logInfo("zone", std::string{"  tickRate="} + std::to_string(TICK_RATE_HZ) + " Hz");
 }
 
@@ -67,6 +79,11 @@ void ZoneServer::run() {
     // Start the simulation tick loop
     scheduleNextTick();
     req::shared::logInfo("zone", "Simulation tick loop started");
+    
+    // Start position auto-save timer
+    scheduleAutosave();
+    req::shared::logInfo("zone", std::string{"Position autosave enabled: interval="} +
+        std::to_string(zoneConfig_.autosaveIntervalSec) + "s");
     
     req::shared::logInfo("zone", "Entering IO event loop...");
     ioContext_.run();
@@ -108,9 +125,10 @@ void ZoneServer::handleNewConnection(Tcp::socket socket) {
 void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
                                const req::shared::net::Connection::ByteArray& payload,
                                ConnectionPtr connection) {
-    // Log protocol version
-    req::shared::logInfo("zone", std::string{"Received message: type="} + 
+    // Log incoming message header details
+    req::shared::logInfo("zone", std::string{"[RECV] Message header: type="} + 
         std::to_string(static_cast<int>(header.type)) + 
+        " (enum: " + std::to_string(static_cast<std::underlying_type_t<req::shared::MessageType>>(header.type)) + ")" +
         ", protocolVersion=" + std::to_string(header.protocolVersion) +
         ", payloadSize=" + std::to_string(header.payloadSize));
 
@@ -124,48 +142,111 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
 
     switch (header.type) {
     case req::shared::MessageType::ZoneAuthRequest: {
+        /*
+         * ZoneAuthRequest Handler
+         * 
+         * Protocol Schema (from ProtocolSchemas.h):
+         *   Payload format: handoffToken|characterId
+         *   
+         *   Fields:
+         *     - handoffToken: decimal handoff token from WorldAuthResponse/EnterWorldResponse
+         *     - characterId: decimal character ID to enter zone with
+         *   
+         *   Example: "987654321|42"
+         * 
+         * Response:
+         *   ZoneAuthResponse with either:
+         *     - Success: "OK|<welcomeMessage>"
+         *     - Error: "ERR|<errorCode>|<errorMessage>"
+         */
+        
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Received ZoneAuthRequest, payloadSize="} + 
+            std::to_string(header.payloadSize));
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Raw payload: '"} + body + "'");
+        
         req::shared::HandoffToken handoffToken = 0;
         req::shared::PlayerId characterId = 0;
         
+        // Parse the payload
         if (!req::shared::protocol::parseZoneAuthRequestPayload(body, handoffToken, characterId)) {
-            req::shared::logError("zone", "Failed to parse ZoneAuthRequest payload");
-            auto errPayload = req::shared::protocol::buildZoneAuthResponseErrorPayload("PARSE_ERROR", "Malformed zone auth request");
+            req::shared::logError("zone", "[ZONEAUTH] PARSE FAILED - sending error response");
+            
+            auto errPayload = req::shared::protocol::buildZoneAuthResponseErrorPayload(
+                "PARSE_ERROR", 
+                "Malformed zone auth request - expected format: handoffToken|characterId");
             req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            
+            req::shared::logInfo("zone", std::string{"[ZONEAUTH] Sending ERROR response: type="} + 
+                std::to_string(static_cast<int>(req::shared::MessageType::ZoneAuthResponse)) +
+                ", payload='" + errPayload + "'");
+            
             connection->send(req::shared::MessageType::ZoneAuthResponse, errBytes);
             return;
         }
 
-        req::shared::logInfo("zone", std::string{"ZoneAuthRequest: handoffToken="} + 
-            std::to_string(handoffToken) + ", characterId=" + std::to_string(characterId) +
-            " for zone \"" + zoneName_ + "\" (id=" + std::to_string(zoneId_) + ")");
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Parsed successfully:"});
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH]   handoffToken="} + std::to_string(handoffToken));
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH]   characterId="} + std::to_string(characterId));
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH]   zone=\""} + zoneName_ + "\" (id=" + std::to_string(zoneId_) + ")");
 
         // TODO: Validate handoffToken with world server or shared handoff service
-        // For now, accept any non-zero token
+        // For now, we use stub validation that accepts any non-zero token
+        req::shared::logInfo("zone", "[ZONEAUTH] Validating handoff token (using stub validation - TODO: integrate with session service)");
+        
         if (handoffToken == req::shared::InvalidHandoffToken) {
-            req::shared::logWarn("zone", "Invalid handoff token");
-            auto errPayload = req::shared::protocol::buildZoneAuthResponseErrorPayload("INVALID_HANDOFF", 
-                "Handoff token not recognized");
+            req::shared::logWarn("zone", std::string{"[ZONEAUTH] INVALID handoff token (value="} + 
+                std::to_string(handoffToken) + ") - sending error response");
+            
+            auto errPayload = req::shared::protocol::buildZoneAuthResponseErrorPayload(
+                "INVALID_HANDOFF", 
+                "Handoff token not recognized or has expired");
             req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            
+            req::shared::logInfo("zone", std::string{"[ZONEAUTH] Sending ERROR response: payload='"} + errPayload + "'");
             connection->send(req::shared::MessageType::ZoneAuthResponse, errBytes);
             return;
         }
 
-        // TODO: Load character data, validate character belongs to this player, etc.
-        // TODO: Validate this is the correct zone for the handoff token
+        // TODO: Additional validation checks:
+        // - Verify handoff token hasn't been used already
+        // - Verify handoff token was issued for this specific zone
+        // - Load character data from database
+        // - Verify character belongs to the session associated with the handoff token
+        // - Check zone capacity/population limits
+        
+        req::shared::logInfo("zone", "[ZONEAUTH] Handoff token validation PASSED (stub)");
+        
+        // Load character data from disk
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Loading character data: characterId="} +
+            std::to_string(characterId));
+        
+        auto character = characterStore_.loadById(characterId);
+        if (!character.has_value()) {
+            req::shared::logError("zone", std::string{"[ZONEAUTH] CHARACTER NOT FOUND: characterId="} +
+                std::to_string(characterId) + " - sending error response");
+            
+            auto errPayload = req::shared::protocol::buildZoneAuthResponseErrorPayload(
+                "CHARACTER_NOT_FOUND",
+                "Character data could not be loaded");
+            req::shared::net::Connection::ByteArray errBytes(errPayload.begin(), errPayload.end());
+            connection->send(req::shared::MessageType::ZoneAuthResponse, errBytes);
+            return;
+        }
+        
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Character loaded: name="} + character->name +
+            ", race=" + character->race + ", class=" + character->characterClass +
+            ", level=" + std::to_string(character->level));
         
         // Create ZonePlayer entry
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Creating ZonePlayer entry for characterId="} + 
+            std::to_string(characterId));
+        
         ZonePlayer player;
         player.characterId = characterId;
-        player.accountId = 0; // TODO: wire in later
+        player.accountId = character->accountId;
         
-        // Starting position (TODO: load from character data)
-        player.posX = 0.0f;
-        player.posY = 0.0f;
-        player.posZ = 0.0f;
-        player.velX = 0.0f;
-        player.velY = 0.0f;
-        player.velZ = 0.0f;
-        player.yawDegrees = 0.0f;
+        // Determine spawn position using character data
+        spawnPlayer(*character, player);
         
         // Initialize last valid position
         player.lastValidPosX = player.posX;
@@ -178,26 +259,35 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         player.isJumpPressed = false;
         player.lastSequenceNumber = 0;
         player.isInitialized = true;
+        player.isDirty = false;
         
         // Insert into players map
         players_[characterId] = player;
         connectionToCharacterId_[connection] = characterId;
         
-        req::shared::logInfo("zone", std::string{"ZoneAuth accepted: characterId="} + 
-            std::to_string(characterId) + ", starting pos=(" + 
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] ZonePlayer initialized: characterId="} + 
+            std::to_string(characterId) + ", spawn=(" + 
             std::to_string(player.posX) + "," + std::to_string(player.posY) + "," + 
-            std::to_string(player.posZ) + ")");
-        
+            std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees));
+
+        // Build success response
         std::string welcomeMsg = std::string("Welcome to ") + zoneName_ + 
             " (zone " + std::to_string(zoneId_) + " on world " + std::to_string(worldId_) + ")";
         
         auto respPayload = req::shared::protocol::buildZoneAuthResponseOkPayload(welcomeMsg);
         req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+        
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Sending SUCCESS response:"});
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH]   type="} + 
+            std::to_string(static_cast<int>(req::shared::MessageType::ZoneAuthResponse)) + 
+            " (enum: " + std::to_string(static_cast<std::underlying_type_t<req::shared::MessageType>>(req::shared::MessageType::ZoneAuthResponse)) + ")");
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH]   payloadSize="} + std::to_string(respPayload.size()));
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH]   payload='"} + respPayload + "'");
+        
         connection->send(req::shared::MessageType::ZoneAuthResponse, respBytes);
 
-        req::shared::logInfo("zone", std::string{"ZoneAuthResponse OK: characterId="} + 
-            std::to_string(characterId) + " entered \"" + zoneName_ + "\" (zone " + 
-            std::to_string(zoneId_) + " on world " + std::to_string(worldId_) + ")");
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] COMPLETE: characterId="} + 
+            std::to_string(characterId) + " successfully entered zone \"" + zoneName_ + "\"");
         break;
     }
     
@@ -370,6 +460,11 @@ void ZoneServer::updateSimulation(float dt) {
             player.lastValidPosX = newPosX;
             player.lastValidPosY = newPosY;
             player.lastValidPosZ = newPosZ;
+            
+            // Mark as dirty if position changed
+            if (dist > 0.01f) {  // Small threshold to avoid marking on tiny movements
+                player.isDirty = true;
+            }
         }
     }
 }
@@ -415,6 +510,191 @@ void ZoneServer::broadcastSnapshots() {
             connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
         }
     }
+}
+
+void ZoneServer::spawnPlayer(req::shared::data::Character& character, ZonePlayer& player) {
+    // Determine spawn position based on character's last known location
+    bool useRestoredPosition = false;
+    
+    // Rule 1: If lastZoneId matches this zone AND position is valid (non-zero), restore position
+    if (character.lastZoneId == zoneId_) {
+        // Check if position is valid (not all zeros)
+        bool hasValidPosition = (character.positionX != 0.0f || 
+                                character.positionY != 0.0f || 
+                                character.positionZ != 0.0f);
+        
+        if (hasValidPosition) {
+            // Restore saved position
+            player.posX = character.positionX;
+            player.posY = character.positionY;
+            player.posZ = character.positionZ;
+            player.yawDegrees = character.heading;
+            useRestoredPosition = true;
+            
+            req::shared::logInfo("zone", std::string{"[SPAWN] Restored position for characterId="} +
+                std::to_string(character.characterId) + ": pos=(" +
+                std::to_string(player.posX) + "," + std::to_string(player.posY) + "," +
+                std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees));
+        }
+    }
+    
+    // Rule 2: Otherwise, use zone safe spawn point
+    if (!useRestoredPosition) {
+        player.posX = zoneConfig_.safeX;
+        player.posY = zoneConfig_.safeY;
+        player.posZ = zoneConfig_.safeZ;
+        player.yawDegrees = zoneConfig_.safeYaw;
+        
+        req::shared::logInfo("zone", std::string{"[SPAWN] Using safe spawn point for characterId="} +
+            std::to_string(character.characterId) + " (first visit or zone mismatch): pos=(" +
+            std::to_string(player.posX) + "," + std::to_string(player.posY) + "," +
+            std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees));
+        
+        // Update character record to reflect new zone and position
+        character.lastWorldId = worldId_;
+        character.lastZoneId = zoneId_;
+        character.positionX = player.posX;
+        character.positionY = player.posY;
+        character.positionZ = player.posZ;
+        character.heading = player.yawDegrees;
+        
+        // Save updated character data
+        if (characterStore_.saveCharacter(character)) {
+            req::shared::logInfo("zone", std::string{"[SPAWN] Updated character lastZone/position: characterId="} +
+                std::to_string(character.characterId) + ", lastZoneId=" + std::to_string(zoneId_));
+        } else {
+            req::shared::logWarn("zone", std::string{"[SPAWN] Failed to save character position: characterId="} +
+                std::to_string(character.characterId));
+        }
+    }
+    
+    // Initialize velocity
+    player.velX = 0.0f;
+    player.velY = 0.0f;
+    player.velZ = 0.0f;
+}
+
+void ZoneServer::setZoneConfig(const ZoneConfig& config) {
+    zoneConfig_ = config;
+    req::shared::logInfo("zone", std::string{"Zone config updated: safeSpawn=("} +
+        std::to_string(config.safeX) + "," + std::to_string(config.safeY) + "," +
+        std::to_string(config.safeZ) + "), safeYaw=" + std::to_string(config.safeYaw) +
+        ", autosaveInterval=" + std::to_string(config.autosaveIntervalSec) + "s");
+}
+
+void ZoneServer::savePlayerPosition(std::uint64_t characterId) {
+    auto playerIt = players_.find(characterId);
+    if (playerIt == players_.end()) {
+        return;
+    }
+    
+    const ZonePlayer& player = playerIt->second;
+    
+    // Load character from disk
+    auto character = characterStore_.loadById(characterId);
+    if (!character.has_value()) {
+        req::shared::logWarn("zone", std::string{"[SAVE] Cannot save position - character not found: characterId="} +
+            std::to_string(characterId));
+        return;
+    }
+    
+    // Update position fields
+    character->lastWorldId = worldId_;
+    character->lastZoneId = zoneId_;
+    character->positionX = player.posX;
+    character->positionY = player.posY;
+    character->positionZ = player.posZ;
+    character->heading = player.yawDegrees;
+    
+    // Save to disk
+    if (characterStore_.saveCharacter(*character)) {
+        req::shared::logInfo("zone", std::string{"[SAVE] Position saved: characterId="} +
+            std::to_string(characterId) + ", zoneId=" + std::to_string(zoneId_) +
+            ", pos=(" + std::to_string(player.posX) + "," + std::to_string(player.posY) + "," +
+            std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees));
+        
+        // Mark as clean after successful save
+        playerIt->second.isDirty = false;
+    } else {
+        req::shared::logError("zone", std::string{"[SAVE] Failed to save character position: characterId="} +
+            std::to_string(characterId));
+    }
+}
+
+void ZoneServer::saveAllPlayerPositions() {
+    int savedCount = 0;
+    int skippedCount = 0;
+    
+    for (auto& [characterId, player] : players_) {
+        if (!player.isInitialized || !player.isDirty) {
+            skippedCount++;
+            continue;
+        }
+        
+        savePlayerPosition(characterId);
+        savedCount++;
+    }
+    
+    if (savedCount > 0) {
+        req::shared::logInfo("zone", std::string{"[AUTOSAVE] Saved positions for "} +
+            std::to_string(savedCount) + " player(s), skipped " + std::to_string(skippedCount));
+    }
+}
+
+void ZoneServer::removePlayer(std::uint64_t characterId) {
+    auto it = players_.find(characterId);
+    if (it == players_.end()) {
+        return;
+    }
+    
+    // Save final position before removing
+    req::shared::logInfo("zone", std::string{"[DISCONNECT] Saving final position for characterId="} +
+        std::to_string(characterId));
+    savePlayerPosition(characterId);
+    
+    // Remove from players map
+    players_.erase(it);
+    
+    req::shared::logInfo("zone", std::string{"[DISCONNECT] Player removed: characterId="} +
+        std::to_string(characterId) + ", remaining players=" + std::to_string(players_.size()));
+}
+
+void ZoneServer::onConnectionClosed(ConnectionPtr connection) {
+    // Find character ID for this connection
+    auto it = connectionToCharacterId_.find(connection);
+    if (it != connectionToCharacterId_.end()) {
+        std::uint64_t characterId = it->second;
+        removePlayer(characterId);
+        connectionToCharacterId_.erase(it);
+    }
+}
+
+void ZoneServer::scheduleAutosave() {
+    auto intervalMs = std::chrono::milliseconds(
+        static_cast<int>(zoneConfig_.autosaveIntervalSec * 1000.0f));
+    
+    autosaveTimer_.expires_after(intervalMs);
+    autosaveTimer_.async_wait([this](const boost::system::error_code& ec) {
+        onAutosave(ec);
+    });
+}
+
+void ZoneServer::onAutosave(const boost::system::error_code& ec) {
+    if (ec == boost::asio::error::operation_aborted) {
+        req::shared::logInfo("zone", "Autosave timer cancelled (server shutting down)");
+        return;
+    }
+    
+    if (ec) {
+        req::shared::logError("zone", std::string{"Autosave timer error: "} + ec.message());
+        return;
+    }
+    
+    // Save all dirty player positions
+    saveAllPlayerPositions();
+    
+    // Schedule next autosave
+    scheduleAutosave();
 }
 
 } // namespace req::zone

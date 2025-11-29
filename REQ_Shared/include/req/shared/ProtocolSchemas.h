@@ -255,13 +255,29 @@ bool parseWorldAuthResponsePayload(
 /*
  * ZoneAuthRequest (client ? ZoneServer)
  * 
- * Payload format: handoffToken|characterId
+ * Wire Format: handoffToken|characterId
+ * Delimiter: pipe character (|)
  * 
- * Fields:
- *   - handoffToken: decimal handoff token from WorldAuthResponse
- *   - characterId: decimal character ID to enter zone with
+ * Fields (in order):
+ *   1. handoffToken: decimal string representation of HandoffToken (uint64_t)
+ *      - Obtained from WorldAuthResponse or EnterWorldResponse
+ *      - Must be non-zero (0 = InvalidHandoffToken)
+ *      - Example: "987654321"
  * 
- * Example: "987654321|42"
+ *   2. characterId: decimal string representation of PlayerId (uint64_t)
+ *      - The character to enter the zone with
+ *      - Example: "42"
+ * 
+ * Complete Example: "987654321|42"
+ * 
+ * Validation Requirements:
+ *   - Exactly 2 fields separated by |
+ *   - Both fields must parse as unsigned 64-bit integers
+ *   - handoffToken must not be 0 (InvalidHandoffToken)
+ * 
+ * Error Responses:
+ *   - PARSE_ERROR: Malformed payload (wrong number of fields or unparseable values)
+ *   - INVALID_HANDOFF: handoffToken is 0 or not recognized
  */
 std::string buildZoneAuthRequestPayload(
     HandoffToken handoffToken,
@@ -275,17 +291,32 @@ bool parseZoneAuthRequestPayload(
 /*
  * ZoneAuthResponse (ZoneServer ? client)
  * 
- * Success format: OK|welcomeMessage
+ * Success Wire Format: OK|welcomeMessage
+ * Error Wire Format: ERR|errorCode|errorMessage
+ * Delimiter: pipe character (|)
  * 
- * Success fields:
- *   - status: "OK"
- *   - welcomeMessage: zone welcome text
+ * Success Fields:
+ *   1. status: literal string "OK"
+ *   2. welcomeMessage: human-readable zone welcome text
+ *      - May contain zone name, zone ID, world ID
+ *      - Example: "Welcome to East Freeport (zone 10 on world 1)"
  * 
- * Example: "OK|Welcome to Elwynn Forest"
+ * Error Fields:
+ *   1. status: literal string "ERR"
+ *   2. errorCode: machine-readable error code
+ *      - PARSE_ERROR: Request payload was malformed
+ *      - INVALID_HANDOFF: Handoff token was 0 or not recognized
+ *      - HANDOFF_EXPIRED: Token has been used or timed out (future)
+ *      - WRONG_ZONE: Token was issued for a different zone (future)
+ *   3. errorMessage: human-readable error description
  * 
- * Error format: ERR|errorCode|errorMessage
+ * Success Example: "OK|Welcome to Elwynn Forest"
+ * Error Example: "ERR|INVALID_HANDOFF|Handoff token not recognized or has expired"
  * 
- * Example: "ERR|INVALID_HANDOFF|Handoff token not recognized"
+ * Guarantees:
+ *   - ZoneServer ALWAYS sends a ZoneAuthResponse for every ZoneAuthRequest
+ *   - Response is either OK or ERR, never silent failure
+ *   - All error paths are logged with context
  */
 std::string buildZoneAuthResponseOkPayload(
     const std::string& welcomeMessage);

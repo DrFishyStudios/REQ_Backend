@@ -1,5 +1,6 @@
 #include <exception>
 #include <string>
+#include <thread>
 
 #include "../../REQ_Shared/include/req/shared/Logger.h"
 #include "../../REQ_Shared/include/req/shared/Config.h"
@@ -22,6 +23,7 @@ int main(int argc, char* argv[]) {
         
         // Default configuration file path
         std::string worldConfigPath = "config/world_config.json";
+        bool cliMode = false;
         
         // Parse command-line arguments
         for (int i = 1; i < argc; ++i) {
@@ -31,6 +33,10 @@ int main(int argc, char* argv[]) {
             if (parseArgument(arg, "--config=", value)) {
                 worldConfigPath = value;
                 req::shared::logInfo("Main", std::string{"Command-line: using config file: "} + worldConfigPath);
+            }
+            else if (arg == "--cli") {
+                cliMode = true;
+                req::shared::logInfo("Main", "Command-line: CLI mode enabled");
             }
             else {
                 req::shared::logWarn("Main", std::string{"Unknown command-line argument: "} + arg);
@@ -53,7 +59,25 @@ int main(int argc, char* argv[]) {
         req::shared::logInfo("Main", std::string{"Using characters path: "} + charactersPath);
 
         req::world::WorldServer server(config, charactersPath);
-        server.run();
+        
+        if (cliMode) {
+            // Run server in background thread, CLI in foreground
+            req::shared::logInfo("Main", "Starting server in background thread for CLI mode");
+            std::thread serverThread([&server]() {
+                server.run();
+            });
+            
+            // Run CLI on main thread
+            server.runCLI();
+            
+            // Wait for server thread to finish
+            if (serverThread.joinable()) {
+                serverThread.join();
+            }
+        } else {
+            // Run server normally (blocks until shutdown)
+            server.run();
+        }
     } catch (const std::exception& ex) {
         req::shared::logError("Main", std::string("Fatal exception: ") + ex.what());
         req::shared::logError("Main", "WorldServer cannot start. Check configuration and try again.");

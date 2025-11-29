@@ -217,6 +217,7 @@
     <ClInclude Include="include\req\shared\MessageHeader.h" />
     <ClInclude Include="include\req\shared\MessageTypes.h" />
     <ClInclude Include="include\req\shared\ProtocolSchemas.h" />
+    <ClInclude Include="include\req\shared\SessionService.h" />
     <ClInclude Include="include\req\shared\Types.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
@@ -237,6 +238,7 @@
     <ClCompile Include="src\DataLoader.cpp" />
     <ClCompile Include="src\Logger.cpp" />
     <ClCompile Include="src\ProtocolSchemas.cpp" />
+    <ClCompile Include="src\SessionService.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="include\req\shared\README.txt" />

@@ -110,8 +110,12 @@ int main(int argc, char* argv[]) {
         req::shared::logInfo("Main", std::string{"  zoneName=\""} + zoneName + "\"");
         req::shared::logInfo("Main", std::string{"  address="} + address);
         req::shared::logInfo("Main", std::string{"  port="} + std::to_string(port));
+        
+        // Initialize ZoneServer with characters path
+        std::string charactersPath = "data/characters";
+        req::shared::logInfo("Main", std::string{"  charactersPath="} + charactersPath);
 
-        req::zone::ZoneServer server(worldId, zoneId, zoneName, address, port);
+        req::zone::ZoneServer server(worldId, zoneId, zoneName, address, port, charactersPath);
         server.run();
     } catch (const std::exception& ex) {
         req::shared::logError("Main", std::string("Fatal exception: ") + ex.what());

@@ -94,6 +94,32 @@ std::optional<data::Account> AccountStore::loadById(std::uint64_t accountId) con
     }
 }
 
+std::vector<data::Account> AccountStore::loadAllAccounts() const {
+    std::vector<data::Account> accounts;
+    
+    try {
+        for (const auto& entry : fs::directory_iterator(m_accountsRootDirectory)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".json") {
+                try {
+                    std::uint64_t accountId = std::stoull(entry.path().stem().string());
+                    auto account = loadById(accountId);
+                    if (account.has_value()) {
+                        accounts.push_back(*account);
+                    }
+                } catch (const std::exception& e) {
+                    // Skip files with non-numeric names or parse errors
+                    logWarn("AccountStore", "Skipping invalid account file: " + entry.path().string());
+                    continue;
+                }
+            }
+        }
+    } catch (const fs::filesystem_error& e) {
+        logError("AccountStore", "Filesystem error during loadAllAccounts: " + std::string(e.what()));
+    }
+    
+    return accounts;
+}
+
 data::Account AccountStore::createAccount(const std::string& username, const std::string& passwordPlaintext) {
     // Check if username already exists
     if (findByUsername(username).has_value()) {

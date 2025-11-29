@@ -60,6 +60,38 @@ public:
      * Returns true on success, false on failure.
      */
     bool saveCharacter(const data::Character& character) const;
+    
+    /**
+     * Create a default character with proper stat initialization.
+     * 
+     * This helper initializes all MMO-ish fields with sensible defaults:
+     * - Level 1, XP 0
+     * - HP/Mana based on simple race/class formulas
+     * - Stats based on race/class bonuses
+     * - Starting position at specified location
+     * - Bind point set to starting location
+     * 
+     * @param accountId Account that owns this character
+     * @param homeWorldId Home world for this character
+     * @param homeZoneId Starting zone ID
+     * @param name Character name
+     * @param race Character race (must be valid EQ race)
+     * @param characterClass Character class (must be valid EQ class)
+     * @param startX Starting X position
+     * @param startY Starting Y position
+     * @param startZ Starting Z position
+     * @return Initialized Character struct (not yet saved to disk)
+     */
+    static data::Character createDefaultCharacter(
+        std::uint64_t accountId,
+        std::uint32_t homeWorldId,
+        std::uint32_t homeZoneId,
+        const std::string& name,
+        const std::string& race,
+        const std::string& characterClass,
+        float startX = 0.0f,
+        float startY = 0.0f,
+        float startZ = 0.0f);
 
 private:
     std::string m_charactersRootDirectory;

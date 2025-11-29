@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include "DataModels.h"
 
@@ -31,6 +32,13 @@ public:
      * Returns std::nullopt if not found.
      */
     std::optional<data::Account> loadById(std::uint64_t accountId) const;
+    
+    /**
+     * Load all accounts from disk.
+     * Returns a vector of all accounts (empty if none found).
+     * Note: This performs a full scan of all account files.
+     */
+    std::vector<data::Account> loadAllAccounts() const;
 
     /**
      * Create a new account with the given username and plaintext password.

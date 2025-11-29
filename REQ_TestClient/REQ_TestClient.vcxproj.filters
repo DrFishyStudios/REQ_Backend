@@ -24,9 +24,18 @@
     <ClCompile Include="src\TestClient_Movement.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\TestClient_NegativeTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\TestClient_Scenarios.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\req\testclient\TestClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\req\testclient\ClientStages.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
