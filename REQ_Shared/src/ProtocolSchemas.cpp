@@ -758,11 +758,17 @@ bool parseMovementIntentPayload(
     }
     outData.isJumpPressed = (jumpValue != 0);
     
-    // Parse clientTimeMs
-    if (!parseUInt(tokens[6], outData.clientTimeMs)) {
-        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse clientTimeMs from '"} + 
-            tokens[6] + "', payload='" + payload + "'");
-        return false;
+    // Parse clientTimeMs (tolerant - default to 0 on failure, don't fail entire parse)
+    try {
+        outData.clientTimeMs = std::stoull(tokens[6]);
+    } catch (const std::exception& e) {
+        req::shared::logWarn("Protocol", std::string{"MovementIntent: invalid clientTimeMs '"} + 
+            tokens[6] + "' (" + e.what() + "), defaulting to 0");
+        outData.clientTimeMs = 0;
+    } catch (...) {
+        req::shared::logWarn("Protocol", std::string{"MovementIntent: invalid clientTimeMs '"} + 
+            tokens[6] + "' (unknown exception), defaulting to 0");
+        outData.clientTimeMs = 0;
     }
     
     return true;

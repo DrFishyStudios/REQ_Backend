@@ -529,7 +529,7 @@ struct MovementIntentData {
     float inputY{ 0.0f };                // Movement input Y axis: -1.0 to 1.0
     float facingYawDegrees{ 0.0f };      // Facing direction: 0-360 degrees
     bool isJumpPressed{ false };         // Jump button state
-    std::uint32_t clientTimeMs{ 0 };     // Client timestamp (for debugging/telemetry)
+    std::uint64_t clientTimeMs{ 0 };     // Client timestamp (for debugging/telemetry) - 64-bit to handle large values
 };
 
 /*
