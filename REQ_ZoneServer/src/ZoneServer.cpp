@@ -458,9 +458,28 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         req::shared::protocol::MovementIntentData intent;
         
         if (!req::shared::protocol::parseMovementIntentPayload(body, intent)) {
-            req::shared::logError("zone", "Failed to parse MovementIntent payload");
+            // Parse failed - log with rate limiting to prevent spam
+            static std::uint64_t parseErrorCount = 0;
+            static std::chrono::steady_clock::time_point lastLogTime = std::chrono::steady_clock::now();
+            
+            parseErrorCount++;
+            
+            auto now = std::chrono::steady_clock::now();
+            auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::seconds>(now - lastLogTime).count();
+            
+            if (timeSinceLastLog >= 5) {  // Log summary every 5 seconds
+                req::shared::logError("zone", std::string{"Failed to parse MovementIntent payload (errors in last 5s: "} + 
+                    std::to_string(parseErrorCount) + "), last payload: '" + body + "'");
+                parseErrorCount = 0;
+                lastLogTime = now;
+            }
+            
+            // IMPORTANT: Do NOT use 'intent' beyond this point - it contains garbage
+            // Safe return without touching player state
             return;
         }
+        
+        // Only use 'intent' after successful parse
         
         // Find the corresponding ZonePlayer
         auto it = players_.find(intent.characterId);
@@ -1109,11 +1128,11 @@ void ZoneServer::saveAllPlayerPositions() {
             savePlayerPosition(characterId);
             savedCount++;
         } catch (const std::exception& e) {
-            req::shared::logError("zone", std::string{"[AUTOSAVE] Exception saving characterId="} +
+            req::shared::logError("zone", std::string{"[AUTOSAVE] Exception during saveCharacter: characterId="} +
                 std::to_string(characterId) + ": " + e.what());
             failedCount++;
         } catch (...) {
-            req::shared::logError("zone", std::string{"[AUTOSAVE] Unknown exception saving characterId="} +
+            req::shared::logError("zone", std::string{"[AUTOSAVE] Unknown exception during saveCharacter: characterId="} +
                 std::to_string(characterId));
             failedCount++;
         }

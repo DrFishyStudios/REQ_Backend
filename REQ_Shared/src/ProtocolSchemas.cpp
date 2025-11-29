@@ -691,57 +691,77 @@ bool parseMovementIntentPayload(
     MovementIntentData& outData) {
     auto tokens = split(payload, '|');
     if (tokens.size() < 7) {
-        req::shared::logError("Protocol", "MovementIntent: expected 7 fields, got " + std::to_string(tokens.size()));
+        req::shared::logError("Protocol", std::string{"MovementIntent: expected 7 fields, got "} + 
+            std::to_string(tokens.size()) + ", payload='" + payload + "'");
         return false;
     }
     
     // Parse characterId
     if (!parseUInt(tokens[0], outData.characterId)) {
-        req::shared::logError("Protocol", "MovementIntent: failed to parse characterId");
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse characterId from '"} + 
+            tokens[0] + "', payload='" + payload + "'");
         return false;
     }
     
     // Parse sequenceNumber
     if (!parseUInt(tokens[1], outData.sequenceNumber)) {
-        req::shared::logError("Protocol", "MovementIntent: failed to parse sequenceNumber");
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse sequenceNumber from '"} + 
+            tokens[1] + "', payload='" + payload + "'");
         return false;
     }
     
     // Parse inputX
     try {
         outData.inputX = std::stof(tokens[2]);
+    } catch (const std::exception& e) {
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse inputX from '"} + 
+            tokens[2] + "': " + e.what() + ", payload='" + payload + "'");
+        return false;
     } catch (...) {
-        req::shared::logError("Protocol", "MovementIntent: failed to parse inputX");
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse inputX from '"} + 
+            tokens[2] + "' (unknown exception), payload='" + payload + "'");
         return false;
     }
     
     // Parse inputY
     try {
         outData.inputY = std::stof(tokens[3]);
+    } catch (const std::exception& e) {
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse inputY from '"} + 
+            tokens[3] + "': " + e.what() + ", payload='" + payload + "'");
+        return false;
     } catch (...) {
-        req::shared::logError("Protocol", "MovementIntent: failed to parse inputY");
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse inputY from '"} + 
+            tokens[3] + "' (unknown exception), payload='" + payload + "'");
         return false;
     }
     
     // Parse facingYawDegrees
     try {
         outData.facingYawDegrees = std::stof(tokens[4]);
+    } catch (const std::exception& e) {
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse facingYawDegrees from '"} + 
+            tokens[4] + "': " + e.what() + ", payload='" + payload + "'");
+        return false;
     } catch (...) {
-        req::shared::logError("Protocol", "MovementIntent: failed to parse facingYawDegrees");
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse facingYawDegrees from '"} + 
+            tokens[4] + "' (unknown exception), payload='" + payload + "'");
         return false;
     }
     
     // Parse isJumpPressed (0 or 1)
     std::uint32_t jumpValue = 0;
     if (!parseUInt(tokens[5], jumpValue)) {
-        req::shared::logError("Protocol", "MovementIntent: failed to parse isJumpPressed");
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse isJumpPressed from '"} + 
+            tokens[5] + "', payload='" + payload + "'");
         return false;
     }
     outData.isJumpPressed = (jumpValue != 0);
     
     // Parse clientTimeMs
     if (!parseUInt(tokens[6], outData.clientTimeMs)) {
-        req::shared::logError("Protocol", "MovementIntent: failed to parse clientTimeMs");
+        req::shared::logError("Protocol", std::string{"MovementIntent: failed to parse clientTimeMs from '"} + 
+            tokens[6] + "', payload='" + payload + "'");
         return false;
     }
     
