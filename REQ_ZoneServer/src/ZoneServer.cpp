@@ -455,6 +455,9 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
     }
     
     case req::shared::MessageType::MovementIntent: {
+        // Log raw payload for debugging
+        req::shared::logInfo("zone", std::string{"[Movement] Raw payload: '"} + body + "'");
+        
         req::shared::protocol::MovementIntentData intent;
         
         if (!req::shared::protocol::parseMovementIntentPayload(body, intent)) {
@@ -479,7 +482,13 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
             return;
         }
         
-        // Only use 'intent' after successful parse
+        // Log parsed MovementIntent details
+        req::shared::logInfo("zone", std::string{"[Movement] Parsed Intent: charId="} + 
+            std::to_string(intent.characterId) + ", seq=" + std::to_string(intent.sequenceNumber) +
+            ", input=(" + std::to_string(intent.inputX) + "," + std::to_string(intent.inputY) + ")" +
+            ", yaw=" + std::to_string(intent.facingYawDegrees) +
+            ", jump=" + (intent.isJumpPressed ? "1" : "0") +
+            ", clientTimeMs=" + std::to_string(intent.clientTimeMs));
         
         // Find the corresponding ZonePlayer
         auto it = players_.find(intent.characterId);
@@ -529,6 +538,13 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         while (player.yawDegrees >= 360.0f) player.yawDegrees -= 360.0f;
         
         player.lastSequenceNumber = intent.sequenceNumber;
+        
+        // Log that input was stored
+        req::shared::logInfo("zone", std::string{"[Movement] Stored input for charId="} +
+            std::to_string(intent.characterId) + ": input=(" + 
+            std::to_string(player.inputX) + "," + std::to_string(player.inputY) + ")" +
+            ", yaw=" + std::to_string(player.yawDegrees) +
+            ", currentPos=(" + std::to_string(player.posX) + "," + std::to_string(player.posY) + "," + std::to_string(player.posZ) + ")");
         
         break;
     }
@@ -684,10 +700,21 @@ void ZoneServer::onTick(const boost::system::error_code& ec) {
 }
 
 void ZoneServer::updateSimulation(float dt) {
+    // Log simulation update periodically (every 20 ticks = 1 second at 20Hz)
+    static std::uint64_t simLogCounter = 0;
+    bool doDetailedLog = (++simLogCounter % 20 == 0);
+    
     // Update player physics
     for (auto& [characterId, player] : players_) {
         if (!player.isInitialized) {
             continue;
+        }
+        
+        // Log initial state for debugging
+        if (doDetailedLog) {
+            req::shared::logInfo("zone", std::string{"[Sim] Player "} + std::to_string(characterId) +
+                " BEFORE: pos=(" + std::to_string(player.posX) + "," + std::to_string(player.posY) + "," + std::to_string(player.posZ) + ")" +
+                ", input=(" + std::to_string(player.inputX) + "," + std::to_string(player.inputY) + ")");
         }
         
         // Compute 2D movement direction from input
@@ -706,6 +733,13 @@ void ZoneServer::updateSimulation(float dt) {
         player.velX = dirX * MAX_SPEED;
         player.velY = dirY * MAX_SPEED;
         
+        // Log velocity computation
+        if (doDetailedLog && (std::abs(player.velX) > 0.01f || std::abs(player.velY) > 0.01f)) {
+            req::shared::logInfo("zone", std::string{"[Sim] Player "} + std::to_string(characterId) +
+                " velocity: vel=(" + std::to_string(player.velX) + "," + std::to_string(player.velY) + ")" +
+                " from input=(" + std::to_string(dirX) + "," + std::to_string(dirY) + ")");
+        }
+        
         // Handle vertical movement / gravity
         bool isOnGround = (player.posZ <= GROUND_LEVEL);
         
@@ -713,7 +747,7 @@ void ZoneServer::updateSimulation(float dt) {
             // On ground: can jump
             if (player.isJumpPressed) {
                 player.velZ = JUMP_VELOCITY;
-                // req::shared::logInfo("zone", std::string{"Character "} + std::to_string(characterId) + " jumped");
+                req::shared::logInfo("zone", std::string{"[Sim] Player "} + std::to_string(characterId) + " jumped");
             } else {
                 // Stay on ground
                 player.velZ = 0.0f;
@@ -770,6 +804,13 @@ void ZoneServer::updateSimulation(float dt) {
             if (dist > 0.01f) {  // Small threshold to avoid marking on tiny movements
                 player.isDirty = true;
             }
+            
+            // Log position change
+            if (doDetailedLog) {
+                req::shared::logInfo("zone", std::string{"[Sim] Player "} + std::to_string(characterId) +
+                    " AFTER: pos=(" + std::to_string(player.posX) + "," + std::to_string(player.posY) + "," + std::to_string(player.posZ) + ")" +
+                    ", moved=" + std::to_string(dist) + " units");
+            }
         }
     }
     
@@ -794,7 +835,9 @@ void ZoneServer::broadcastSnapshots() {
     
     // Log snapshot building (periodic, not every tick to reduce spam)
     static std::uint64_t logCounter = 0;
-    if (++logCounter % 100 == 0) {  // Log every 100 snapshots (~5 seconds at 20Hz)
+    bool doDetailedLog = (++logCounter % 20 == 0);  // Log every 20 snapshots (~1 second at 20Hz)
+    
+    if (doDetailedLog) {
         req::shared::logInfo("zone", std::string{"[Snapshot] Building snapshot "} + 
             std::to_string(snapshotCounter_ + 1) + " for " + std::to_string(players_.size()) + " active player(s)");
     }
@@ -823,11 +866,24 @@ void ZoneServer::broadcastSnapshots() {
             entry.yawDegrees = player.yawDegrees;
             
             snapshot.players.push_back(entry);
+            
+            // Log what we're putting into the snapshot
+            if (doDetailedLog) {
+                req::shared::logInfo("zone", std::string{"[Snapshot] Adding entry: charId="} +
+                    std::to_string(player.characterId) + 
+                    ", pos=(" + std::to_string(entry.posX) + "," + std::to_string(entry.posY) + "," + std::to_string(entry.posZ) + ")" +
+                    ", vel=(" + std::to_string(entry.velX) + "," + std::to_string(entry.velY) + "," + std::to_string(entry.velZ) + ")");
+            }
         }
         
         // Build payload once
         std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
         req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
+        
+        // Log the actual payload string
+        if (doDetailedLog) {
+            req::shared::logInfo("zone", std::string{"[Snapshot] Payload: '"} + payloadStr + "'");
+        }
         
         // Broadcast to all connected clients (with safety checks)
         int sentCount = 0;
@@ -854,7 +910,7 @@ void ZoneServer::broadcastSnapshots() {
         }
         
         // Log broadcast summary (periodic)
-        if (logCounter % 100 == 0) {
+        if (doDetailedLog) {
             req::shared::logInfo("zone", std::string{"[Snapshot] Broadcast snapshot "} + 
                 std::to_string(snapshot.snapshotId) + " with " + std::to_string(snapshot.players.size()) + 
                 " player(s) to " + std::to_string(sentCount) + " connection(s) [FULL BROADCAST]" +
@@ -903,6 +959,12 @@ void ZoneServer::broadcastSnapshots() {
                     entry.yawDegrees = otherPlayer.yawDegrees;
                     snapshot.players.push_back(entry);
                     includedCount++;
+                    
+                    // Log self entry
+                    if (doDetailedLog) {
+                        req::shared::logInfo("zone", std::string{"[Snapshot] For charId="} + std::to_string(recipientCharId) +
+                            " adding SELF: pos=(" + std::to_string(entry.posX) + "," + std::to_string(entry.posY) + "," + std::to_string(entry.posZ) + ")");
+                    }
                     continue;
                 }
                 
@@ -927,7 +989,7 @@ void ZoneServer::broadcastSnapshots() {
             }
             
             // Debug logging (if enabled)
-            if (zoneConfig_.debugInterest && logCounter % 20 == 0) {  // Every 1 second at 20Hz
+            if (zoneConfig_.debugInterest && doDetailedLog) {
                 req::shared::logInfo("zone", std::string{"[Snapshot] (filtered) recipientCharId="} + 
                     std::to_string(recipientCharId) + ", playersIncluded=" + std::to_string(includedCount) +
                     " (out of " + std::to_string(players_.size()) + " total)");
@@ -937,6 +999,12 @@ void ZoneServer::broadcastSnapshots() {
             try {
                 std::string payloadStr = req::shared::protocol::buildPlayerStateSnapshotPayload(snapshot);
                 req::shared::net::Connection::ByteArray payloadBytes(payloadStr.begin(), payloadStr.end());
+                
+                // Log payload for this recipient
+                if (doDetailedLog) {
+                    req::shared::logInfo("zone", std::string{"[Snapshot] For charId="} + std::to_string(recipientCharId) +
+                        " payload: '" + payloadStr + "'");
+                }
                 
                 recipientPlayer.connection->send(req::shared::MessageType::PlayerStateSnapshot, payloadBytes);
                 totalSent++;
@@ -948,7 +1016,7 @@ void ZoneServer::broadcastSnapshots() {
         }
         
         // Log broadcast summary (periodic)
-        if (logCounter % 100 == 0) {
+        if (doDetailedLog) {
             req::shared::logInfo("zone", std::string{"[Snapshot] Broadcast snapshot "} + 
                 std::to_string(snapshotCounter_) + " with INTEREST FILTERING to " + 
                 std::to_string(totalSent) + " client(s) [radius=" + 
