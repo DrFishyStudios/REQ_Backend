@@ -211,4 +211,3 @@ std::string AccountStore::hashPassword(const std::string& plaintext) const {
 }
 
 } // namespace req::shared
- 

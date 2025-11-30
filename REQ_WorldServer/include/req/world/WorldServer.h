@@ -22,7 +22,6 @@ namespace req::world {
 class WorldServer {
 public:
     explicit WorldServer(const req::shared::WorldConfig& config,
-                        const req::shared::WorldRules& worldRules,
                         const std::string& charactersPath = "data/characters");
 
     void run();
@@ -65,7 +64,6 @@ private:
     std::unordered_map<req::shared::HandoffToken, std::uint64_t> handoffTokenToCharacterId_;
 
     req::shared::WorldConfig config_{};
-    req::shared::WorldRules worldRules_{};
     
     // Character persistence
     req::shared::CharacterStore characterStore_;

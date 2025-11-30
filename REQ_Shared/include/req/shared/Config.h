@@ -67,56 +67,9 @@ struct ZoneConfig {
     bool debugInterest{ false };            // Enable debug logging for interest filtering
 };
 
-struct WorldRules {
-    struct XpRules {
-        float baseRate{1.0f};
-        float groupBonusPerMember{0.0f};
-        float hotZoneMultiplierDefault{1.0f};
-    };
-
-    struct LootRules {
-        float dropRateMultiplier{1.0f};
-        float coinRateMultiplier{1.0f};
-        float rareDropMultiplier{1.0f};
-    };
-
-    struct DeathRules {
-        float xpLossMultiplier{1.0f};
-        bool corpseRunEnabled{true};
-        int corpseDecayMinutes{30};
-    };
-
-    struct UiHelpers {
-        bool conColorsEnabled{true};
-        bool minimapEnabled{true};
-        bool questTrackerEnabled{true};
-        bool corpseArrowEnabled{true};
-    };
-
-    struct HotZone {
-        std::uint32_t zoneId{0};
-        float xpMultiplier{1.0f};
-        float lootMultiplier{1.0f};
-        // For now just store raw strings; parsing dates is out of scope for this task.
-        std::string startDate; // may be empty if null
-        std::string endDate;   // may be empty if null
-    };
-
-    std::string rulesetId;
-    std::string displayName;
-    std::string description;
-
-    XpRules xp;
-    LootRules loot;
-    DeathRules death;
-    UiHelpers uiHelpers;
-    std::vector<HotZone> hotZones;
-};
-
 LoginConfig loadLoginConfig(const std::string& path);
 WorldListConfig loadWorldListConfig(const std::string& path);
 WorldConfig loadWorldConfig(const std::string& path);
 ZoneConfig loadZoneConfig(const std::string& path);
-WorldRules loadWorldRules(const std::string& path);
 
 } // namespace req::shared

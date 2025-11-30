@@ -55,13 +55,6 @@ int main(int argc, char* argv[]) {
         req::shared::logInfo("Main", std::string{"  zones="} + std::to_string(config.zones.size()));
         req::shared::logInfo("Main", std::string{"  autoLaunchZones="} + (config.autoLaunchZones ? "true" : "false"));
 
-        // Load world rules based on ruleset_id from config
-        const std::string rulesetId = config.rulesetId;
-        std::string worldRulesPath = "config/world_rules_" + rulesetId + ".json";
-
-        req::shared::logInfo("Main", std::string{"Loading world rules from: "} + worldRulesPath);
-        auto worldRules = req::shared::loadWorldRules(worldRulesPath);
-
         // Initialize with CharacterStore path
         const std::string charactersPath = "data/characters";
         req::shared::logInfo("Main", std::string{"Using characters path: "} + charactersPath);
@@ -72,7 +65,7 @@ int main(int argc, char* argv[]) {
         auto& sessionService = req::shared::SessionService::instance();
         sessionService.configure(sessionsPath);
 
-        req::world::WorldServer server(config, worldRules, charactersPath);
+        req::world::WorldServer server(config, charactersPath);
         
         if (cliMode) {
             // Run server in background thread, CLI in foreground

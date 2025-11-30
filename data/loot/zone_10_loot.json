@@ -1,0 +1,39 @@
+{
+  "zone_id": 10,
+  "loot_tables": [
+    {
+      "loot_table_id": 10,
+      "name": "Zone10_Trash",
+      "entries": [
+        {
+          "item_id": 1001,
+          "chance": 0.4,
+          "min_count": 1,
+          "max_count": 1
+        },
+        {
+          "item_id": 1002,
+          "chance": 0.15,
+          "min_count": 1,
+          "max_count": 1
+        },
+        {
+          "item_id": 1003,
+          "chance": 0.25,
+          "min_count": 1,
+          "max_count": 1
+        }
+      ]
+    }
+  ],
+  "npc_loot": [
+    {
+      "npc_id": 1,
+      "loot_table_id": 10
+    },
+    {
+      "npc_id": 2,
+      "loot_table_id": 10
+    }
+  ]
+}

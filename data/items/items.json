@@ -1,0 +1,79 @@
+{
+  "items": [
+    {
+      "item_id": 1001,
+      "name": "Cloth Shirt",
+      "slot": "Chest",
+      "type": "Armor",
+      "required_level": 1,
+      "icon_id": 1,
+      "max_stack_size": 1,
+      "value_copper": 5,
+      "stats": {
+        "ac": 3,
+        "hp": 0,
+        "mana": 0,
+        "str": 0,
+        "sta": 0,
+        "agi": 0,
+        "dex": 0,
+        "wis": 0,
+        "int": 0,
+        "cha": 0
+      },
+      "damage": 0,
+      "delay_ms": 0,
+      "is_magic": false
+    },
+    {
+      "item_id": 1002,
+      "name": "Rusty Short Sword",
+      "slot": "MainHand",
+      "type": "Weapon",
+      "required_level": 1,
+      "icon_id": 2,
+      "max_stack_size": 1,
+      "value_copper": 15,
+      "stats": {
+        "ac": 0,
+        "hp": 0,
+        "mana": 0,
+        "str": 0,
+        "sta": 0,
+        "agi": 0,
+        "dex": 0,
+        "wis": 0,
+        "int": 0,
+        "cha": 0
+      },
+      "damage": 4,
+      "delay_ms": 3000,
+      "is_magic": false
+    },
+    {
+      "item_id": 1003,
+      "name": "Torn Cloth Pants",
+      "slot": "Legs",
+      "type": "Armor",
+      "required_level": 1,
+      "icon_id": 3,
+      "max_stack_size": 1,
+      "value_copper": 4,
+      "stats": {
+        "ac": 2,
+        "hp": 0,
+        "mana": 0,
+        "str": 0,
+        "sta": 0,
+        "agi": 0,
+        "dex": 0,
+        "wis": 0,
+        "int": 0,
+        "cha": 0
+      },
+      "damage": 0,
+      "delay_ms": 0,
+      "is_magic": false
+    }
+  ]
+}

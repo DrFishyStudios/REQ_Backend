@@ -20,9 +20,8 @@
 namespace req::world {
 
 WorldServer::WorldServer(const req::shared::WorldConfig& config,
-                         const req::shared::WorldRules& worldRules,
                          const std::string& charactersPath)
-    : acceptor_(ioContext_), config_(config), worldRules_(worldRules), characterStore_(charactersPath),
+    : acceptor_(ioContext_), config_(config), characterStore_(charactersPath),
       accountStore_("data/accounts") {
     using boost::asio::ip::tcp;
     boost::system::error_code ec;
@@ -46,20 +45,6 @@ WorldServer::WorldServer(const req::shared::WorldConfig& config,
     req::shared::logInfo("world", std::string{"  autoLaunchZones="} + (config_.autoLaunchZones ? "true" : "false"));
     req::shared::logInfo("world", std::string{"  zones.size()="} + std::to_string(config_.zones.size()));
     req::shared::logInfo("world", std::string{"  charactersPath="} + charactersPath);
-    
-    // Log WorldRules details
-    req::shared::logInfo("world", "WorldRules attached: rulesetId=" + worldRules_.rulesetId +
-        ", displayName=" + worldRules_.displayName);
-    req::shared::logInfo("world", "Rules: XP baseRate=" + std::to_string(worldRules_.xp.baseRate) +
-        ", groupBonusPerMember=" + std::to_string(worldRules_.xp.groupBonusPerMember));
-    req::shared::logInfo("world", "Rules: lootDropMult=" + std::to_string(worldRules_.loot.dropRateMultiplier) +
-        ", rareDropMult=" + std::to_string(worldRules_.loot.rareDropMultiplier));
-    req::shared::logInfo("world", "Rules: deathXpLossMult=" + std::to_string(worldRules_.death.xpLossMultiplier) +
-        ", corpseRunEnabled=" + std::string(worldRules_.death.corpseRunEnabled ? "true" : "false"));
-    req::shared::logInfo("world", "Rules: uiHelpers minimap=" +
-        std::string(worldRules_.uiHelpers.minimapEnabled ? "true" : "false") +
-        ", questTracker=" + std::string(worldRules_.uiHelpers.questTrackerEnabled ? "true" : "false"));
-    req::shared::logInfo("world", "Rules: hotZones=" + std::to_string(worldRules_.hotZones.size()));
 }
 
 void WorldServer::run() {
