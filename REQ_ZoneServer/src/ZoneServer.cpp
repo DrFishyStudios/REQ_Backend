@@ -19,7 +19,9 @@ namespace {
     constexpr auto TICK_INTERVAL_MS = std::chrono::milliseconds(50);  // 50ms per tick
     constexpr float TICK_DT = 1.0f / TICK_RATE_HZ;           // 0.05 seconds
     
-    constexpr float MAX_SPEED = 7.0f;                        // units per second
+    // TODO: configurable movement speed (now using zoneConfig_.moveSpeed instead)
+    // Old default was 7.0f - now defaults to 70.0f for visible movement
+    
     constexpr float GRAVITY = -30.0f;                        // units per second squared
     constexpr float JUMP_VELOCITY = 10.0f;                   // initial jump velocity
     constexpr float GROUND_LEVEL = 0.0f;                     // Z coordinate of ground
@@ -59,6 +61,7 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     zoneConfig_.safeY = 0.0f;
     zoneConfig_.safeZ = 0.0f;
     zoneConfig_.safeYaw = 0.0f;
+    zoneConfig_.moveSpeed = 70.0f;
     zoneConfig_.autosaveIntervalSec = 30.0f;
     zoneConfig_.broadcastFullState = true;
     zoneConfig_.interestRadius = 2000.0f;
@@ -92,6 +95,7 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     req::shared::logInfo("zone", std::string{"  port="} + std::to_string(port_));
     req::shared::logInfo("zone", std::string{"  charactersPath="} + charactersPath);
     req::shared::logInfo("zone", std::string{"  tickRate="} + std::to_string(TICK_RATE_HZ) + " Hz");
+    req::shared::logInfo("zone", std::string{"  moveSpeed="} + std::to_string(zoneConfig_.moveSpeed) + " uu/s");
     req::shared::logInfo("zone", std::string{"  broadcastFullState="} + 
         (zoneConfig_.broadcastFullState ? "true" : "false"));
     req::shared::logInfo("zone", std::string{"  interestRadius="} + std::to_string(zoneConfig_.interestRadius));
@@ -704,6 +708,9 @@ void ZoneServer::updateSimulation(float dt) {
     static std::uint64_t simLogCounter = 0;
     bool doDetailedLog = (++simLogCounter % 20 == 0);
     
+    // Get configurable move speed from zone config
+    const float moveSpeed = zoneConfig_.moveSpeed;
+    
     // Update player physics
     for (auto& [characterId, player] : players_) {
         if (!player.isInitialized) {
@@ -729,15 +736,21 @@ void ZoneServer::updateSimulation(float dt) {
             inputLength = 1.0f;
         }
         
-        // Compute desired velocity (no acceleration for now, just direct)
-        player.velX = dirX * MAX_SPEED;
-        player.velY = dirY * MAX_SPEED;
+        // Compute desired velocity using configurable move speed
+        player.velX = dirX * moveSpeed;
+        player.velY = dirY * moveSpeed;
         
-        // Log velocity computation
+        // Compute expected move distance this frame
+        const float maxMoveDist = moveSpeed * dt;
+        
+        // Log velocity computation with move details
         if (doDetailedLog && (std::abs(player.velX) > 0.01f || std::abs(player.velY) > 0.01f)) {
             req::shared::logInfo("zone", std::string{"[Sim] Player "} + std::to_string(characterId) +
-                " velocity: vel=(" + std::to_string(player.velX) + "," + std::to_string(player.velY) + ")" +
-                " from input=(" + std::to_string(dirX) + "," + std::to_string(dirY) + ")");
+                " MOVE: pos=(" + std::to_string(player.posX) + "," + std::to_string(player.posY) + "," + std::to_string(player.posZ) + ")" +
+                ", input=(" + std::to_string(dirX) + "," + std::to_string(dirY) + ")" +
+                ", moveSpeed=" + std::to_string(moveSpeed) +
+                ", dt=" + std::to_string(dt) +
+                ", moveDist=" + std::to_string(maxMoveDist));
         }
         
         // Handle vertical movement / gravity
@@ -774,7 +787,7 @@ void ZoneServer::updateSimulation(float dt) {
         float dz = newPosZ - player.lastValidPosZ;
         float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
         
-        float maxAllowedMove = MAX_SPEED * dt * MAX_ALLOWED_MOVE_MULTIPLIER;
+        float maxAllowedMove = moveSpeed * dt * MAX_ALLOWED_MOVE_MULTIPLIER;
         float suspiciousThreshold = maxAllowedMove * SUSPICIOUS_MOVE_MULTIPLIER;
         
         if (dist > suspiciousThreshold) {
@@ -1093,6 +1106,7 @@ void ZoneServer::setZoneConfig(const ZoneConfig& config) {
     req::shared::logInfo("zone", std::string{"Zone config updated: safeSpawn=("} +
         std::to_string(config.safeX) + "," + std::to_string(config.safeY) + "," +
         std::to_string(config.safeZ) + "), safeYaw=" + std::to_string(config.safeYaw) +
+        ", moveSpeed=" + std::to_string(config.moveSpeed) +
         ", autosaveInterval=" + std::to_string(config.autosaveIntervalSec) + "s" +
         ", broadcastFullState=" + (config.broadcastFullState ? "true" : "false") +
         ", interestRadius=" + std::to_string(config.interestRadius) +
@@ -1481,14 +1495,24 @@ void ZoneServer::broadcastAttackResult(const req::shared::protocol::AttackResult
     // Broadcast to all clients in the zone (for now - could optimize to nearby only)
     int sentCount = 0;
     for (auto& connection : connections_) {
-        if (connection) {
+        if (!connection) {
+            continue;
+        }
+        
+        // Check if connection is closed
+        if (connection->isClosed()) {
+            continue;
+        }
+        
+        try {
             connection->send(req::shared::MessageType::AttackResult, payloadBytes);
             sentCount++;
+        } catch (const std::exception& e) {
+            req::shared::logWarn("zone", std::string{"[COMBAT] Failed to send AttackResult to connection: "} + e.what());
         }
     }
     
-    req::shared::logInfo("zone", std::string{"[COMBAT] Broadcast AttackResult to "} +
-        std::to_string(sentCount) + " client(s)");
+    req::shared::logInfo("zone", std::string{"[COMBAT] AttackResult broadcasted to "} + std::to_string(sentCount) + " connection(s)");
 }
 
 } // namespace req::zone

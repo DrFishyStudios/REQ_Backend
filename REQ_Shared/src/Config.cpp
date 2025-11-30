@@ -286,6 +286,9 @@ ZoneConfig loadZoneConfig(const std::string& path) {
         cfg.safeYaw = getOrDefault<float>(spawn, "yaw", 0.0f);
     }
     
+    // Movement speed (optional, default 70.0 uu/s)
+    cfg.moveSpeed = getOrDefault<float>(j, "move_speed", 70.0f);
+    
     // Auto-save interval (optional, default 30s)
     cfg.autosaveIntervalSec = getOrDefault<float>(j, "autosave_interval_sec", 30.0f);
     
@@ -295,6 +298,12 @@ ZoneConfig loadZoneConfig(const std::string& path) {
     cfg.debugInterest = getOrDefault<bool>(j, "debug_interest", false);
     
     // Validation
+    if (cfg.moveSpeed <= 0.0f) {
+        std::string msg = std::string{"Invalid move_speed in ZoneConfig: "} + std::to_string(cfg.moveSpeed);
+        logError("Config", msg);
+        throw std::runtime_error(msg);
+    }
+    
     if (cfg.autosaveIntervalSec <= 0.0f) {
         std::string msg = std::string{"Invalid autosave_interval_sec in ZoneConfig: "} + std::to_string(cfg.autosaveIntervalSec);
         logError("Config", msg);
@@ -316,6 +325,7 @@ ZoneConfig loadZoneConfig(const std::string& path) {
     logInfo("Config", std::string{"ZoneConfig loaded: zoneId="} + std::to_string(cfg.zoneId) + 
             ", zoneName=" + cfg.zoneName + 
             ", safeSpawn=(" + std::to_string(cfg.safeX) + "," + std::to_string(cfg.safeY) + "," + std::to_string(cfg.safeZ) + ")" +
+            ", moveSpeed=" + std::to_string(cfg.moveSpeed) +
             ", autosaveIntervalSec=" + std::to_string(cfg.autosaveIntervalSec) +
             ", broadcastFullState=" + (cfg.broadcastFullState ? "true" : "false") +
             ", interestRadius=" + std::to_string(cfg.interestRadius) +

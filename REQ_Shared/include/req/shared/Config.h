@@ -55,6 +55,9 @@ struct ZoneConfig {
     float safeZ{ 0.0f };
     float safeYaw{ 0.0f };
     
+    // Movement speed (units per second, server-authoritative)
+    float moveSpeed{ 70.0f };               // Default: 70 uu/s (10x the old 7.0)
+    
     // Position auto-save interval (seconds)
     float autosaveIntervalSec{ 30.0f };
     
