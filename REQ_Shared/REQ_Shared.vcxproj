@@ -237,7 +237,11 @@
     <ClCompile Include="src\Connection.cpp" />
     <ClCompile Include="src\DataLoader.cpp" />
     <ClCompile Include="src\Logger.cpp" />
-    <ClCompile Include="src\ProtocolSchemas.cpp" />
+    <ClCompile Include="src\Protocol_Character.cpp" />
+    <ClCompile Include="src\Protocol_Combat.cpp" />
+    <ClCompile Include="src\Protocol_Login.cpp" />
+    <ClCompile Include="src\Protocol_World.cpp" />
+    <ClCompile Include="src\Protocol_Zone.cpp" />
     <ClCompile Include="src\SessionService.cpp" />
   </ItemGroup>
   <ItemGroup>
