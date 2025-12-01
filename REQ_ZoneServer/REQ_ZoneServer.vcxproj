@@ -197,10 +197,12 @@
     <ClCompile Include="src\ZoneInstance.cpp" />
     <ClCompile Include="src\ZoneServer.cpp" />
     <ClCompile Include="src\ZoneServer_Combat.cpp" />
+    <ClCompile Include="src\ZoneServer_Messages.cpp" />
     <ClCompile Include="src\ZoneServer_Network.cpp" />
     <ClCompile Include="src\ZoneServer_Npc.cpp" />
     <ClCompile Include="src\ZoneServer_Persistence.cpp" />
     <ClCompile Include="src\ZoneServer_Players.cpp" />
+    <ClCompile Include="src\ZoneServer_Simulation.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\req\zone\ZoneInstance.h" />

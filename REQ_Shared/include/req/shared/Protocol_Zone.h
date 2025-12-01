@@ -1,0 +1,223 @@
+#pragma once
+
+#include <string>
+#include <vector>
+#include <cstdint>
+
+#include "Types.h"
+
+/*
+ * Protocol_Zone.h
+ * 
+ * Zone protocol definitions for REQ backend.
+ * Includes zone authentication and movement/state synchronization.
+ * All payloads are UTF-8 strings with pipe (|) delimiters.
+ */
+
+namespace req::shared::protocol {
+
+// ============================================================================
+// Data Structures for Parsed Payloads
+// ============================================================================
+
+struct ZoneAuthResponseData {
+    bool success{ false };
+    
+    // Success fields
+    std::string welcomeMessage;
+    
+    // Error fields
+    std::string errorCode;
+    std::string errorMessage;
+};
+
+/*
+ * MovementIntentData
+ * 
+ * Represents client input for movement.
+ * Part of the server-authoritative movement model (GDD Section 14.3).
+ * 
+ * Important: Client position is NOT trusted. Only input vectors and buttons
+ * are sent. The server computes authoritative position and sends back
+ * PlayerStateSnapshot messages.
+ */
+struct MovementIntentData {
+    std::uint64_t characterId{ 0 };      // Character sending the input
+    std::uint32_t sequenceNumber{ 0 };   // Increments per intent from this client
+    float inputX{ 0.0f };                // Movement input X axis: -1.0 to 1.0
+    float inputY{ 0.0f };                // Movement input Y axis: -1.0 to 1.0
+    float facingYawDegrees{ 0.0f };      // Facing direction: 0-360 degrees
+    bool isJumpPressed{ false };         // Jump button state
+    std::uint64_t clientTimeMs{ 0 };     // Client timestamp (for debugging/telemetry) - 64-bit to handle large values
+};
+
+/*
+ * PlayerStateEntry
+ * 
+ * Represents a single player's authoritative state from the server.
+ */
+struct PlayerStateEntry {
+    std::uint64_t characterId{ 0 };
+    float posX{ 0.0f };
+    float posY{ 0.0f };
+    float posZ{ 0.0f };
+    float velX{ 0.0f };
+    float velY{ 0.0f };
+    float velZ{ 0.0f };
+    float yawDegrees{ 0.0f };
+};
+
+/*
+ * PlayerStateSnapshotData
+ * 
+ * Represents the authoritative state of all players in the zone.
+ * Part of the server-authoritative movement model (GDD Section 14.3).
+ * 
+ * The server sends these snapshots periodically (e.g., 20 Hz) to all clients
+ * in the zone. Clients use this data to render player positions.
+ */
+struct PlayerStateSnapshotData {
+    std::uint64_t snapshotId{ 0 };                    // Incrementing snapshot identifier
+    std::vector<PlayerStateEntry> players;             // All players in this snapshot
+};
+
+// ============================================================================
+// ZoneAuthRequest / ZoneAuthResponse
+// ============================================================================
+
+/*
+ * ZoneAuthRequest (client ? ZoneServer)
+ * 
+ * Wire Format: handoffToken|characterId
+ * Delimiter: pipe character (|)
+ * 
+ * Fields (in order):
+ *   1. handoffToken: decimal string representation of HandoffToken (uint64_t)
+ *      - Obtained from WorldAuthResponse or EnterWorldResponse
+ *      - Must be non-zero (0 = InvalidHandoffToken)
+ *      - Example: "987654321"
+ * 
+ *   2. characterId: decimal string representation of PlayerId (uint64_t)
+ *      - The character to enter the zone with
+ *      - Example: "42"
+ * 
+ * Complete Example: "987654321|42"
+ * 
+ * Validation Requirements:
+ *   - Exactly 2 fields separated by |
+ *   - Both fields must parse as unsigned 64-bit integers
+ *   - handoffToken must not be 0 (InvalidHandoffToken)
+ * 
+ * Error Responses:
+ *   - PARSE_ERROR: Malformed payload (wrong number of fields or unparseable values)
+ *   - INVALID_HANDOFF: handoffToken is 0 or not recognized
+ */
+std::string buildZoneAuthRequestPayload(
+    HandoffToken handoffToken,
+    PlayerId characterId);
+
+bool parseZoneAuthRequestPayload(
+    const std::string& payload,
+    HandoffToken& outHandoffToken,
+    PlayerId& outCharacterId);
+
+/*
+ * ZoneAuthResponse (ZoneServer ? client)
+ * 
+ * Success Wire Format: OK|welcomeMessage
+ * Error Wire Format: ERR|errorCode|errorMessage
+ * Delimiter: pipe character (|)
+ * 
+ * Success Fields:
+ *   1. status: literal string "OK"
+ *   2. welcomeMessage: human-readable zone welcome text
+ *      - May contain zone name, zone ID, world ID
+ *      - Example: "Welcome to East Freeport (zone 10 on world 1)"
+ * 
+ * Error Fields:
+ *   1. status: literal string "ERR"
+ *   2. errorCode: machine-readable error code
+ *      - PARSE_ERROR: Request payload was malformed
+ *      - INVALID_HANDOFF: Handoff token was 0 or not recognized
+ *      - HANDOFF_EXPIRED: Token has been used or timed out (future)
+ *      - WRONG_ZONE: Token was issued for a different zone (future)
+ *   3. errorMessage: human-readable error description
+ * 
+ * Success Example: "OK|Welcome to Elwynn Forest"
+ * Error Example: "ERR|INVALID_HANDOFF|Handoff token not recognized or has expired"
+ * 
+ * Guarantees:
+ *   - ZoneServer ALWAYS sends a ZoneAuthResponse for every ZoneAuthRequest
+ *   - Response is either OK or ERR, never silent failure
+ *   - All error paths are logged with context
+ */
+std::string buildZoneAuthResponseOkPayload(
+    const std::string& welcomeMessage);
+
+std::string buildZoneAuthResponseErrorPayload(
+    const std::string& errorCode,
+    const std::string& errorMessage);
+
+bool parseZoneAuthResponsePayload(
+    const std::string& payload,
+    ZoneAuthResponseData& outData);
+
+// ============================================================================
+// MovementIntent (client ? ZoneServer)
+// ============================================================================
+
+/*
+ * MovementIntent (client ? ZoneServer)
+ * 
+ * Payload format: characterId|sequenceNumber|inputX|inputY|facingYawDegrees|isJumpPressed|clientTimeMs
+ * 
+ * Fields:
+ *   - characterId: decimal character ID sending the input
+ *   - sequenceNumber: decimal sequence number (increments per intent)
+ *   - inputX: float movement input X axis (-1.0 to 1.0)
+ *   - inputY: float movement input Y axis (-1.0 to 1.0)
+ *   - facingYawDegrees: float facing direction (0-360 degrees, server normalizes)
+ *   - isJumpPressed: 0 or 1 (jump button state)
+ *   - clientTimeMs: decimal client timestamp in milliseconds
+ * 
+ * Example: "42|123|0.5|-1.0|90.0|1|1234567890"
+ * 
+ * Note: This is part of the server-authoritative movement model.
+ *       Client position is NOT sent - only input. Server computes position.
+ */
+std::string buildMovementIntentPayload(
+    const MovementIntentData& data);
+
+bool parseMovementIntentPayload(
+    const std::string& payload,
+    MovementIntentData& outData);
+
+// ============================================================================
+// PlayerStateSnapshot (ZoneServer ? client)
+// ============================================================================
+
+/*
+ * PlayerStateSnapshot (ZoneServer ? client)
+ * 
+ * Payload format: snapshotId|playerCount|player1Data|player2Data|...
+ * 
+ * Player data format (comma-separated): characterId,posX,posY,posZ,velX,velY,velZ,yawDegrees
+ * 
+ * Fields:
+ *   - snapshotId: decimal snapshot identifier (increments per snapshot)
+ *   - playerCount: decimal number of players in this snapshot
+ *   - playerData: comma-separated player state entries (one per player)
+ * 
+ * Example: "5|2|42,100.5,200.0,10.0,0.0,0.0,0.0,90.0|43,150.0,200.0,10.0,1.5,0.0,0.0,180.0"
+ * 
+ * Note: This is the authoritative state from the server.
+ *       Clients use this to render player positions, not their own predicted state.
+ */
+std::string buildPlayerStateSnapshotPayload(
+    const PlayerStateSnapshotData& data);
+
+bool parsePlayerStateSnapshotPayload(
+    const std::string& payload,
+    PlayerStateSnapshotData& outData);
+
+} // namespace req::shared::protocol

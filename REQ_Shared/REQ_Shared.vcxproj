@@ -217,6 +217,11 @@
     <ClInclude Include="include\req\shared\MessageHeader.h" />
     <ClInclude Include="include\req\shared\MessageTypes.h" />
     <ClInclude Include="include\req\shared\ProtocolSchemas.h" />
+    <ClInclude Include="include\req\shared\Protocol_Character.h" />
+    <ClInclude Include="include\req\shared\Protocol_Combat.h" />
+    <ClInclude Include="include\req\shared\Protocol_Login.h" />
+    <ClInclude Include="include\req\shared\Protocol_World.h" />
+    <ClInclude Include="include\req\shared\Protocol_Zone.h" />
     <ClInclude Include="include\req\shared\SessionService.h" />
     <ClInclude Include="include\req\shared\Types.h" />
     <ClInclude Include="pch.h" />

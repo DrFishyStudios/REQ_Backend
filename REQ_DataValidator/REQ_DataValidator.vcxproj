@@ -219,6 +219,11 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\DataValidator.cpp" />
+    <ClCompile Include="src\DataValidator_Config.cpp" />
+    <ClCompile Include="src\DataValidator_Npcs.cpp" />
+    <ClCompile Include="src\DataValidator_Rules.cpp" />
+    <ClCompile Include="src\DataValidator_AccountsChars.cpp" />
+    <ClCompile Include="src\DataValidator_ItemsLoot.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\req\datavalidator\DataValidator.h" />
@@ -227,3 +232,6 @@
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>
+
+
+

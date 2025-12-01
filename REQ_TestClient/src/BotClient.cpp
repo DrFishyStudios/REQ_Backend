@@ -17,13 +17,6 @@ namespace req::testclient {
 namespace {
     constexpr const char* CLIENT_VERSION = "REQ-BotClient-0.1";
     constexpr float MOVEMENT_SEND_INTERVAL_MS = 100.0f;  // Send movement every 100ms
-    
-    std::uint32_t getClientTimeMs() {
-        static auto g_startTime = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - g_startTime);
-        return static_cast<std::uint32_t>(duration.count());
-    }
 }
 
 BotClient::BotClient(int botIndex)
@@ -459,102 +452,6 @@ bool BotClient::doZoneAuth() {
     return true;
 }
 
-void BotClient::updateMovement(float deltaTime) {
-    float inputX = 0.0f;
-    float inputY = 0.0f;
-    float yaw = 0.0f;
-    
-    switch (config_.pattern) {
-    case BotConfig::MovementPattern::Circle: {
-        // Move in a circle around center point
-        movementAngle_ += config_.angularSpeed * deltaTime;
-        
-        // Normalize angle to [0, 2*pi]
-        while (movementAngle_ >= 2.0f * 3.14159f) {
-            movementAngle_ -= 2.0f * 3.14159f;
-        }
-        
-        // Movement direction (tangent to circle)
-        float dirX = -std::sin(movementAngle_);
-        float dirY = std::cos(movementAngle_);
-        
-        inputX = dirX;
-        inputY = dirY;
-        yaw = std::atan2(dirX, dirY) * 180.0f / 3.14159f;
-        break;
-    }
-    
-    case BotConfig::MovementPattern::BackAndForth: {
-        // Move back and forth on X axis
-        movementPhase_ += config_.walkSpeed * deltaTime;
-        
-        // Oscillate between -radius and +radius
-        if (movementPhase_ > config_.moveRadius) {
-            movementPhase_ = config_.moveRadius;
-            config_.walkSpeed = -std::abs(config_.walkSpeed);
-        } else if (movementPhase_ < -config_.moveRadius) {
-            movementPhase_ = -config_.moveRadius;
-            config_.walkSpeed = std::abs(config_.walkSpeed);
-        }
-        
-        inputX = (config_.walkSpeed > 0.0f) ? 1.0f : -1.0f;
-        inputY = 0.0f;
-        yaw = (config_.walkSpeed > 0.0f) ? 90.0f : 270.0f;
-        break;
-    }
-    
-    case BotConfig::MovementPattern::Random: {
-        // Random walk (change direction periodically)
-        static std::mt19937 rng(botIndex_);  // Seed with bot index
-        static std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-        static std::uniform_real_distribution<float> yawDist(0.0f, 360.0f);
-        
-        // Change direction every 2 seconds
-        static float timeSinceDirectionChange = 0.0f;
-        timeSinceDirectionChange += deltaTime;
-        
-        if (timeSinceDirectionChange >= 2.0f) {
-            inputX = dist(rng);
-            inputY = dist(rng);
-            yaw = yawDist(rng);
-            timeSinceDirectionChange = 0.0f;
-        }
-        break;
-    }
-    
-    case BotConfig::MovementPattern::Stationary:
-    default:
-        // Don't move
-        inputX = 0.0f;
-        inputY = 0.0f;
-        yaw = 0.0f;
-        break;
-    }
-    
-    sendMovementIntent(inputX, inputY, yaw, false);
-}
-
-void BotClient::sendMovementIntent(float inputX, float inputY, float yaw, bool jump) {
-    if (!zoneSocket_ || !zoneSocket_->is_open()) {
-        return;
-    }
-    
-    req::shared::protocol::MovementIntentData intent;
-    intent.characterId = characterId_;
-    intent.sequenceNumber = ++movementSequence_;
-    intent.inputX = inputX;
-    intent.inputY = inputY;
-    intent.facingYawDegrees = yaw;
-    intent.isJumpPressed = jump;
-    intent.clientTimeMs = getClientTimeMs();
-    
-    std::string payload = req::shared::protocol::buildMovementIntentPayload(intent);
-    if (sendMessage(*zoneSocket_, req::shared::MessageType::MovementIntent, payload)) {
-        logDebug("Sent movement: seq=" + std::to_string(intent.sequenceNumber) + 
-                ", input=(" + std::to_string(inputX) + "," + std::to_string(inputY) + ")");
-    }
-}
-
 bool BotClient::sendMessage(Tcp::socket& socket, req::shared::MessageType type, const std::string& body) {
     req::shared::MessageHeader header;
     header.protocolVersion = req::shared::CurrentProtocolVersion;
@@ -628,30 +525,6 @@ bool BotClient::tryReceiveMessage(Tcp::socket& socket, req::shared::MessageHeade
     socket.non_blocking(false);
     outBody.assign(bodyBytes.begin(), bodyBytes.end());
     return true;
-}
-
-void BotClient::logMinimal(const std::string& msg) {
-    if (config_.logLevel >= BotConfig::LogLevel::Minimal) {
-        std::cout << getBotPrefix() << msg << std::endl;
-    }
-}
-
-void BotClient::logNormal(const std::string& msg) {
-    if (config_.logLevel >= BotConfig::LogLevel::Normal) {
-        std::cout << getBotPrefix() << msg << std::endl;
-    }
-}
-
-void BotClient::logDebug(const std::string& msg) {
-    if (config_.logLevel >= BotConfig::LogLevel::Debug) {
-        std::cout << getBotPrefix() << msg << std::endl;
-    }
-}
-
-std::string BotClient::getBotPrefix() const {
-    std::ostringstream oss;
-    oss << "[Bot" << std::setfill('0') << std::setw(3) << botIndex_ << "] ";
-    return oss.str();
 }
 
 } // namespace req::testclient

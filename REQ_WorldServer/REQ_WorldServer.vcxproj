@@ -196,6 +196,9 @@
     <ClCompile Include="src\CharacterStore.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\WorldServer.cpp" />
+    <ClCompile Include="src\WorldServer_CLI.cpp" />
+    <ClCompile Include="src\WorldServer_Messages.cpp" />
+    <ClCompile Include="src\WorldServer_Network.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\req\world\CharacterStore.h" />
