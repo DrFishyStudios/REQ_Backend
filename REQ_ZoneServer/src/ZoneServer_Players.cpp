@@ -65,6 +65,27 @@ void ZoneServer::spawnPlayer(req::shared::data::Character& character, ZonePlayer
     player.velX = 0.0f;
     player.velY = 0.0f;
     player.velZ = 0.0f;
+    
+    // Initialize combat state from character
+    player.level = character.level;
+    player.xp = character.xp;
+    player.hp = (character.hp > 0) ? character.hp : character.maxHp;
+    player.maxHp = character.maxHp;
+    player.mana = character.mana;
+    player.maxMana = character.maxMana;
+    
+    player.strength = character.strength;
+    player.stamina = character.stamina;
+    player.agility = character.agility;
+    player.dexterity = character.dexterity;
+    player.intelligence = character.intelligence;
+    player.wisdom = character.wisdom;
+    player.charisma = character.charisma;
+    
+    req::shared::logInfo("zone", std::string{"[SPAWN] Combat state initialized: characterId="} +
+        std::to_string(character.characterId) + ", level=" + std::to_string(player.level) +
+        ", xp=" + std::to_string(player.xp) + ", hp=" + std::to_string(player.hp) + "/" +
+        std::to_string(player.maxHp));
 }
 
 void ZoneServer::setZoneConfig(const ZoneConfig& config) {

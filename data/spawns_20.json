@@ -1,0 +1,82 @@
+{
+  "zone_id": 20,
+  "spawn_groups": [
+    {
+      "spawn_group_id": 200,
+      "entries": [
+        { "npc_id": 2001, "weight": 60 },
+        { "npc_id": 2002, "weight": 40 }
+      ]
+    },
+    {
+      "spawn_group_id": 201,
+      "entries": [
+        { "npc_id": 2002, "weight": 100 }
+      ]
+    },
+    {
+      "spawn_group_id": 202,
+      "entries": [
+        { "npc_id": 2001, "weight": 50 },
+        { "npc_id": 3001, "weight": 50 }
+      ]
+    }
+  ],
+  "spawns": [
+    {
+      "spawn_id": 1,
+      "position": { "x": 80.0, "y": 120.0, "z": 0.0, "heading": 0.0 },
+      "spawn_group_id": 200,
+      "respawn_time_sec": 90.0,
+      "respawn_variance_sec": 15.0,
+      "roam_radius": 25.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 2,
+      "position": { "x": 180.0, "y": 90.0, "z": 0.0, "heading": 90.0 },
+      "spawn_group_id": 201,
+      "respawn_time_sec": 120.0,
+      "respawn_variance_sec": 20.0,
+      "roam_radius": 0.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 3,
+      "position": { "x": 250.0, "y": 180.0, "z": 0.0, "heading": 180.0 },
+      "direct_npc_id": 2002,
+      "respawn_time_sec": 180.0,
+      "respawn_variance_sec": 30.0,
+      "roam_radius": 0.0,
+      "named_chance": 0.10,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 4,
+      "position": { "x": 350.0, "y": 200.0, "z": 0.0, "heading": 270.0 },
+      "spawn_group_id": 202,
+      "respawn_time_sec": 100.0,
+      "respawn_variance_sec": 20.0,
+      "roam_radius": 30.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": true
+    },
+    {
+      "spawn_id": 5,
+      "position": { "x": 120.0, "y": 300.0, "z": 0.0, "heading": 45.0 },
+      "direct_npc_id": 3001,
+      "respawn_time_sec": 150.0,
+      "respawn_variance_sec": 25.0,
+      "roam_radius": 0.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": false
+    }
+  ]
+}

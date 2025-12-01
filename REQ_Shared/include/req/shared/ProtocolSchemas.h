@@ -6,6 +6,7 @@
 #include "Protocol_Zone.h"
 #include "Protocol_Character.h"
 #include "Protocol_Combat.h"
+#include "Protocol_Dev.h"
 
 /*
  * ProtocolSchemas.h
@@ -22,6 +23,7 @@
  *   - Protocol_Zone.h (ZoneAuthRequest, ZoneAuthResponse, Movement, PlayerStateSnapshot, etc.)
  *   - Protocol_Character.h (CharacterList, CharacterCreate, EnterWorld, etc.)
  *   - Protocol_Combat.h (AttackRequest, AttackResult, etc.)
+ *   - Protocol_Dev.h (DevCommand, DevCommandResponse, etc.)
  * 
  * All declarations remain in the req::shared::protocol namespace.
  * 

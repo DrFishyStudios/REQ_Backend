@@ -36,6 +36,7 @@ void ZoneServer::savePlayerPosition(std::uint64_t characterId) {
         // Update combat state if dirty
         if (player.combatStatsDirty) {
             character->level = player.level;
+            character->xp = player.xp;
             character->hp = player.hp;
             character->maxHp = player.maxHp;
             character->mana = player.mana;
@@ -50,7 +51,8 @@ void ZoneServer::savePlayerPosition(std::uint64_t characterId) {
             character->charisma = player.charisma;
             
             req::shared::logInfo("zone", std::string{"[SAVE] Combat stats saved: characterId="} +
-                std::to_string(characterId) + ", hp=" + std::to_string(player.hp) + "/" +
+                std::to_string(characterId) + ", level=" + std::to_string(player.level) +
+                ", xp=" + std::to_string(player.xp) + ", hp=" + std::to_string(player.hp) + "/" +
                 std::to_string(player.maxHp) + ", mana=" + std::to_string(player.mana) + "/" +
                 std::to_string(player.maxMana));
         }

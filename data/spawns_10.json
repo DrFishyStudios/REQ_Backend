@@ -1,0 +1,93 @@
+{
+  "zone_id": 10,
+  "spawn_groups": [
+    {
+      "spawn_group_id": 100,
+      "entries": [
+        { "npc_id": 1001, "weight": 70 },
+        { "npc_id": 1002, "weight": 30 }
+      ]
+    },
+    {
+      "spawn_group_id": 101,
+      "entries": [
+        { "npc_id": 1002, "weight": 60 },
+        { "npc_id": 1003, "weight": 40 }
+      ]
+    },
+    {
+      "spawn_group_id": 102,
+      "entries": [
+        { "npc_id": 1001, "weight": 100 }
+      ]
+    }
+  ],
+  "spawns": [
+    {
+      "spawn_id": 1,
+      "position": { "x": 100.0, "y": 50.0, "z": 0.0, "heading": 0.0 },
+      "spawn_group_id": 100,
+      "respawn_time_sec": 60.0,
+      "respawn_variance_sec": 10.0,
+      "roam_radius": 0.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 2,
+      "position": { "x": 200.0, "y": 75.0, "z": 0.0, "heading": 90.0 },
+      "direct_npc_id": 1002,
+      "respawn_time_sec": 45.0,
+      "respawn_variance_sec": 5.0,
+      "roam_radius": 20.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 3,
+      "position": { "x": 150.0, "y": 120.0, "z": 0.0, "heading": 180.0 },
+      "direct_npc_id": 1003,
+      "respawn_time_sec": 90.0,
+      "respawn_variance_sec": 15.0,
+      "roam_radius": 0.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 4,
+      "position": { "x": 50.0, "y": 200.0, "z": 0.0, "heading": 270.0 },
+      "spawn_group_id": 101,
+      "respawn_time_sec": 60.0,
+      "respawn_variance_sec": 10.0,
+      "roam_radius": 15.0,
+      "named_chance": 0.05,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 5,
+      "position": { "x": 300.0, "y": 150.0, "z": 0.0, "heading": 45.0 },
+      "spawn_group_id": 102,
+      "respawn_time_sec": 120.0,
+      "respawn_variance_sec": 20.0,
+      "roam_radius": 0.0,
+      "named_chance": 0.0,
+      "day_only": false,
+      "night_only": false
+    },
+    {
+      "spawn_id": 6,
+      "position": { "x": 250.0, "y": 250.0, "z": 0.0, "heading": 135.0 },
+      "spawn_group_id": 100,
+      "respawn_time_sec": 75.0,
+      "respawn_variance_sec": 15.0,
+      "roam_radius": 0.0,
+      "named_chance": 0.0,
+      "day_only": true,
+      "night_only": false
+    }
+  ]
+}

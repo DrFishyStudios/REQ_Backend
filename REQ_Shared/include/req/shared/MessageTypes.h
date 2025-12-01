@@ -36,6 +36,10 @@ enum class MessageType : std::uint16_t {
     // Zone gameplay - Combat
     AttackRequest         = 42, // Client requests to attack a target
     AttackResult          = 43, // ZoneServer sends attack result to client(s)
+    
+    // Dev commands (for testing)
+    DevCommand            = 50, // Client sends dev command to ZoneServer
+    DevCommandResponse    = 51, // ZoneServer responds to dev command
 
     // Gameplay (initial placeholders)
     PlayerState       = 100, // Snapshot of player state (DEPRECATED - use PlayerStateSnapshot)

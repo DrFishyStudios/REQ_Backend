@@ -69,6 +69,11 @@ void ZoneServer::updateSimulation(float dt) {
             continue;
         }
         
+        // Skip physics updates for dead players
+        if (player.isDead) {
+            continue;
+        }
+        
         // Log initial state for debugging
         if (doDetailedLog) {
             req::shared::logInfo("zone", std::string{"[Sim] Player "} + std::to_string(characterId) +
@@ -179,7 +184,7 @@ void ZoneServer::updateSimulation(float dt) {
         }
     }
     
-    // Update NPCs (placeholder for now - no AI yet)
+    // Update NPCs (AI state machine)
     for (auto& [npcId, npc] : npcs_) {
         updateNpc(npc, dt);
     }
@@ -187,8 +192,34 @@ void ZoneServer::updateSimulation(float dt) {
     // Periodic NPC debug logging (every 5 seconds at 20Hz = 100 ticks)
     static std::uint64_t npcLogCounter = 0;
     if (!npcs_.empty() && ++npcLogCounter % 100 == 0) {
-        req::shared::logInfo("zone", std::string{"[NPC] Tick: "} + std::to_string(npcs_.size()) +
-            " NPC(s) in zone (no AI yet)");
+        // Count NPCs by state
+        int idleCount = 0, alertCount = 0, engagedCount = 0, leasingCount = 0, fleeingCount = 0, deadCount = 0;
+        for (const auto& [npcId, npc] : npcs_) {
+            using NpcAiState = req::shared::data::NpcAiState;
+            switch (npc.aiState) {
+                case NpcAiState::Idle: idleCount++; break;
+                case NpcAiState::Alert: alertCount++; break;
+                case NpcAiState::Engaged: engagedCount++; break;
+                case NpcAiState::Leashing: leasingCount++; break;
+                case NpcAiState::Fleeing: fleeingCount++; break;
+                case NpcAiState::Dead: deadCount++; break;
+                default: break;
+            }
+        }
+        
+        req::shared::logInfo("zone", std::string{"[NPC] Active: "} + std::to_string(npcs_.size()) +
+            " NPC(s) - Idle:" + std::to_string(idleCount) +
+            ", Alert:" + std::to_string(alertCount) +
+            ", Engaged:" + std::to_string(engagedCount) +
+            ", Leashing:" + std::to_string(leasingCount) +
+            ", Fleeing:" + std::to_string(fleeingCount) +
+            ", Dead:" + std::to_string(deadCount));
+    }
+    
+    // Process corpse decay (check every second = 20 ticks)
+    static std::uint64_t corpseDecayCounter = 0;
+    if (++corpseDecayCounter % 20 == 0 && !corpses_.empty()) {
+        processCorpseDecay();
     }
 }
 

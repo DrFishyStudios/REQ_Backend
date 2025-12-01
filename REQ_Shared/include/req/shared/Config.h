@@ -2,7 +2,15 @@
 
 #include <string>
 #include <vector>
+#include <cstdint>
 #include "Types.h"
+
+// Forward declarations for data types (Phase 2)
+namespace req::shared::data {
+    struct NpcTemplateStore;
+    struct SpawnTable;
+    struct Character;
+}
 
 namespace req::shared {
 
@@ -67,9 +75,92 @@ struct ZoneConfig {
     bool debugInterest{ false };            // Enable debug logging for interest filtering
 };
 
+// ============================================================================
+// WorldRules - Ruleset configuration for worlds
+// ============================================================================
+
+struct WorldRules {
+    struct XpRules {
+        float baseRate{ 1.0f };
+        float groupBonusPerMember{ 0.0f };
+        float hotZoneMultiplierDefault{ 1.0f };
+    };
+    
+    struct LootRules {
+        float dropRateMultiplier{ 1.0f };
+        float coinRateMultiplier{ 1.0f };
+        float rareDropMultiplier{ 1.0f };
+    };
+    
+    struct DeathRules {
+        float xpLossMultiplier{ 1.0f };
+        bool corpseRunEnabled{ true };
+        int corpseDecayMinutes{ 30 };
+    };
+    
+    struct UiHelpers {
+        bool conColorsEnabled{ true };
+        bool minimapEnabled{ true };
+        bool questTrackerEnabled{ true };
+        bool corpseArrowEnabled{ true };
+        bool factionColorPulsesEnabled{ true };
+    };
+    
+    struct HotZone {
+        std::uint32_t zoneId{ 0 };
+        float xpMultiplier{ 1.0f };
+        float lootMultiplier{ 1.0f };
+        std::string startDate;  // empty if null
+        std::string endDate;    // empty if null
+    };
+    
+    // Top-level fields
+    std::string rulesetId;
+    std::string displayName;
+    std::string description;
+    
+    XpRules xp;
+    LootRules loot;
+    DeathRules death;
+    UiHelpers uiHelpers;
+    std::vector<HotZone> hotZones;
+};
+
+// ============================================================================
+// XP Tables - Level progression tables
+// ============================================================================
+
+struct XpTableEntry {
+    int level{ 1 };
+    std::int64_t totalXp{ 0 };
+};
+
+struct XpTable {
+    std::string id;
+    std::string displayName;
+    std::vector<XpTableEntry> entries;
+};
+
 LoginConfig loadLoginConfig(const std::string& path);
 WorldListConfig loadWorldListConfig(const std::string& path);
 WorldConfig loadWorldConfig(const std::string& path);
 ZoneConfig loadZoneConfig(const std::string& path);
+WorldRules loadWorldRules(const std::string& path);
+XpTable loadDefaultXpTable(const std::string& path);
+
+// NPC Template and Spawn System loaders (Phase 2)
+data::NpcTemplateStore loadNpcTemplates(const std::string& path);
+data::SpawnTable loadSpawnTable(const std::string& path);
+
+// XP helper functions
+std::int64_t GetTotalXpForLevel(const XpTable& table, int level);
 
 } // namespace req::shared
+
+namespace req::shared {
+    // XP service helper - defined here to avoid circular dependency
+    void AddXp(req::shared::data::Character& character,
+               std::int64_t amount,
+               const XpTable& xpTable,
+               const WorldRules& rules);
+}

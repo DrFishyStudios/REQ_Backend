@@ -187,6 +187,10 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
     std::cout << "  d - Strafe right\n";
     std::cout << "  j - Jump\n";
     std::cout << "  attack <npcId> - Attack an NPC\n";
+    std::cout << "  suicide - Force character to 0 HP and trigger death\n";
+    std::cout << "  givexp <amount> - Give XP to character\n";
+    std::cout << "  setlevel <level> - Set character level\n";
+    std::cout << "  respawn - Respawn at bind point\n";
     std::cout << "  [empty] - Stop moving\n";
     std::cout << "  q - Quit movement test\n";
     std::cout << "==============================\n\n";
@@ -232,6 +236,14 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
                 } else {
                     req::shared::logError("TestClient", "Failed to parse AttackResult");
                 }
+            } else if (header.type == req::shared::MessageType::DevCommandResponse) {
+                req::shared::protocol::DevCommandResponseData response;
+                if (req::shared::protocol::parseDevCommandResponsePayload(msgBody, response)) {
+                    std::cout << "[CLIENT] DevCommand " << (response.success ? "SUCCESS" : "FAILED")
+                             << ": " << response.message << std::endl;
+                } else {
+                    req::shared::logError("TestClient", "Failed to parse DevCommandResponse");
+                }
             } else {
                 req::shared::logInfo("TestClient", std::string{"Received unexpected message type: "} + 
                     std::to_string(static_cast<int>(header.type)));
@@ -276,6 +288,88 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
                 }
             } catch (const std::exception& e) {
                 std::cout << "Invalid NPC ID: '" << npcIdStr << "'. Usage: attack <npcId>\n";
+            }
+            continue;
+        }
+        
+        // Check for dev command: suicide
+        if (command == "suicide") {
+            req::shared::protocol::DevCommandData devCmd;
+            devCmd.characterId = localCharacterId;
+            devCmd.command = "suicide";
+            devCmd.param1 = "";
+            devCmd.param2 = "";
+            
+            std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
+            if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
+                req::shared::logError("TestClient", "Failed to send DevCommand");
+            } else {
+                req::shared::logInfo("TestClient", "Sent DevCommand: suicide");
+            }
+            continue;
+        }
+        
+        // Check for dev command: givexp
+        if (command.find("givexp ") == 0) {
+            std::string amountStr = command.substr(7); // Skip "givexp "
+            try {
+                std::int64_t amount = std::stoll(amountStr);
+                
+                req::shared::protocol::DevCommandData devCmd;
+                devCmd.characterId = localCharacterId;
+                devCmd.command = "givexp";
+                devCmd.param1 = amountStr;
+                devCmd.param2 = "";
+                
+                std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
+                if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
+                    req::shared::logError("TestClient", "Failed to send DevCommand");
+                } else {
+                    req::shared::logInfo("TestClient", std::string{"Sent DevCommand: givexp "} + amountStr);
+                }
+            } catch (const std::exception& e) {
+                std::cout << "Invalid XP amount: '" << amountStr << "'. Usage: givexp <amount>\n";
+            }
+            continue;
+        }
+        
+        // Check for dev command: setlevel
+        if (command.find("setlevel ") == 0) {
+            std::string levelStr = command.substr(9); // Skip "setlevel "
+            try {
+                std::uint32_t level = std::stoul(levelStr);
+                
+                req::shared::protocol::DevCommandData devCmd;
+                devCmd.characterId = localCharacterId;
+                devCmd.command = "setlevel";
+                devCmd.param1 = levelStr;
+                devCmd.param2 = "";
+                
+                std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
+                if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
+                    req::shared::logError("TestClient", "Failed to send DevCommand");
+                } else {
+                    req::shared::logInfo("TestClient", std::string{"Sent DevCommand: setlevel "} + levelStr);
+                }
+            } catch (const std::exception& e) {
+                std::cout << "Invalid level: '" << levelStr << "'. Usage: setlevel <level>\n";
+            }
+            continue;
+        }
+        
+        // Check for dev command: respawn
+        if (command == "respawn") {
+            req::shared::protocol::DevCommandData devCmd;
+            devCmd.characterId = localCharacterId;
+            devCmd.command = "respawn";
+            devCmd.param1 = "";
+            devCmd.param2 = "";
+            
+            std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
+            if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
+                req::shared::logError("TestClient", "Failed to send DevCommand");
+            } else {
+                req::shared::logInfo("TestClient", "Sent DevCommand: respawn");
             }
             continue;
         }

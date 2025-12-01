@@ -12,7 +12,10 @@
       "pos_z": 0.0,
       "facing_degrees": 0.0,
       "aggro_radius": 15.0,
-      "leash_radius": 60.0
+      "leash_radius": 60.0,
+      "respawn_time_sec": 90.0,
+      "attack_cooldown": 1.8,
+      "move_speed": 55.0
     },
     {
       "npc_id": 2002,
@@ -26,7 +29,10 @@
       "pos_z": 0.0,
       "facing_degrees": 90.0,
       "aggro_radius": 18.0,
-      "leash_radius": 70.0
+      "leash_radius": 70.0,
+      "respawn_time_sec": 120.0,
+      "attack_cooldown": 2.0,
+      "move_speed": 50.0
     },
     {
       "npc_id": 2003,
@@ -40,7 +46,10 @@
       "pos_z": 0.0,
       "facing_degrees": 180.0,
       "aggro_radius": 20.0,
-      "leash_radius": 80.0
+      "leash_radius": 80.0,
+      "respawn_time_sec": 180.0,
+      "attack_cooldown": 2.2,
+      "move_speed": 45.0
     }
   ]
 }

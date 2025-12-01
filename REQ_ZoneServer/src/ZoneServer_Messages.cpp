@@ -425,6 +425,74 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         break;
     }
     
+    case req::shared::MessageType::DevCommand: {
+        req::shared::protocol::DevCommandData devCmd;
+        
+        if (!req::shared::protocol::parseDevCommandPayload(body, devCmd)) {
+            req::shared::logError("zone", "[DEV] Failed to parse DevCommand payload");
+            
+            // Send error response
+            req::shared::protocol::DevCommandResponseData response;
+            response.success = false;
+            response.message = "Failed to parse dev command";
+            
+            std::string respPayload = req::shared::protocol::buildDevCommandResponsePayload(response);
+            req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+            connection->send(req::shared::MessageType::DevCommandResponse, respBytes);
+            return;
+        }
+        
+        req::shared::logInfo("zone", std::string{"[DEV] DevCommand: charId="} +
+            std::to_string(devCmd.characterId) + ", command=" + devCmd.command +
+            ", param1=" + devCmd.param1 + ", param2=" + devCmd.param2);
+        
+        req::shared::protocol::DevCommandResponseData response;
+        response.success = true;
+        
+        // Process command
+        if (devCmd.command == "suicide") {
+            devSuicide(devCmd.characterId);
+            response.message = "Character forced to 0 HP and death triggered";
+        } else if (devCmd.command == "givexp") {
+            try {
+                std::int64_t amount = std::stoll(devCmd.param1);
+                devGiveXp(devCmd.characterId, amount);
+                response.message = "Gave " + std::to_string(amount) + " XP";
+            } catch (...) {
+                response.success = false;
+                response.message = "Invalid XP amount: " + devCmd.param1;
+            }
+        } else if (devCmd.command == "setlevel") {
+            try {
+                std::uint32_t level = std::stoul(devCmd.param1);
+                devSetLevel(devCmd.characterId, level);
+                response.message = "Set level to " + std::to_string(level);
+            } catch (...) {
+                response.success = false;
+                response.message = "Invalid level: " + devCmd.param1;
+            }
+        } else if (devCmd.command == "respawn") {
+            auto playerIt = players_.find(devCmd.characterId);
+            if (playerIt != players_.end()) {
+                respawnPlayer(playerIt->second);
+                response.message = "Player respawned at bind point";
+            } else {
+                response.success = false;
+                response.message = "Player not found in zone";
+            }
+        } else {
+            response.success = false;
+            response.message = "Unknown command: " + devCmd.command;
+        }
+        
+        // Send response
+        std::string respPayload = req::shared::protocol::buildDevCommandResponsePayload(response);
+        req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+        connection->send(req::shared::MessageType::DevCommandResponse, respBytes);
+        
+        break;
+    }
+    
     default:
         req::shared::logWarn("zone", std::string{"Unsupported message type: "} + 
             std::to_string(static_cast<int>(header.type)));

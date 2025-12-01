@@ -4,6 +4,7 @@
 
 #include "../../REQ_Shared/include/req/shared/Logger.h"
 #include "../../REQ_Shared/include/req/shared/Types.h"
+#include "../../REQ_Shared/include/req/shared/Config.h"
 #include "../include/req/zone/ZoneServer.h"
 
 namespace {
@@ -111,11 +112,27 @@ int main(int argc, char* argv[]) {
         req::shared::logInfo("Main", std::string{"  address="} + address);
         req::shared::logInfo("Main", std::string{"  port="} + std::to_string(port));
         
+        // Load world config to get ruleset ID
+        req::shared::logInfo("Main", "Loading world configuration...");
+        std::string worldConfigPath = "config/world_config.json";
+        auto worldConfig = req::shared::loadWorldConfig(worldConfigPath);
+        
+        // Load world rules based on ruleset ID
+        req::shared::logInfo("Main", std::string{"Loading world rules for ruleset: "} + worldConfig.rulesetId);
+        std::string worldRulesPath = "config/world_rules_" + worldConfig.rulesetId + ".json";
+        auto worldRules = req::shared::loadWorldRules(worldRulesPath);
+        
+        // Load XP table
+        req::shared::logInfo("Main", "Loading XP tables...");
+        std::string xpTablesPath = "config/xp_tables.json";
+        auto xpTable = req::shared::loadDefaultXpTable(xpTablesPath);
+        
         // Initialize ZoneServer with characters path
         std::string charactersPath = "data/characters";
         req::shared::logInfo("Main", std::string{"  charactersPath="} + charactersPath);
 
-        req::zone::ZoneServer server(worldId, zoneId, zoneName, address, port, charactersPath);
+        req::zone::ZoneServer server(worldId, zoneId, zoneName, address, port, 
+                                     worldRules, xpTable, charactersPath);
         server.run();
     } catch (const std::exception& ex) {
         req::shared::logError("Main", std::string("Fatal exception: ") + ex.what());

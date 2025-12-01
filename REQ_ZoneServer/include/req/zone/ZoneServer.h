@@ -54,6 +54,7 @@ struct ZonePlayer {
     
     // Combat state (loaded from character, persisted on zone exit)
     std::int32_t level{ 1 };
+    std::uint64_t xp{ 0 };  // Character XP
     std::int32_t hp{ 100 };
     std::int32_t maxHp{ 100 };
     std::int32_t mana{ 100 };
@@ -68,10 +69,13 @@ struct ZonePlayer {
     std::int32_t wisdom{ 75 };
     std::int32_t charisma{ 75 };
     
+    // Death state
+    bool isDead{ false };  // true if player is currently dead
+    
     // Simple flags
     bool isInitialized{ false };
     bool isDirty{ false };  // Position changed since last save
-    bool combatStatsDirty{ false };  // Combat stats changed (HP/mana)
+    bool combatStatsDirty{ false };  // Combat stats changed (HP/mana/XP)
 };
 
 // Use shared ZoneConfig from Config.h (no duplicate definition needed)
@@ -84,6 +88,8 @@ public:
                const std::string& zoneName,
                const std::string& address,
                std::uint16_t port,
+               const req::shared::WorldRules& worldRules,
+               const req::shared::XpTable& xpTable,
                const std::string& charactersPath = "data/characters");
 
     void run();
@@ -113,11 +119,27 @@ private:
     // NPC management
     void loadNpcsForZone();
     void updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds);
+    void updateNpcAi(req::shared::data::ZoneNpc& npc, float deltaSeconds);
+    
+    // Hate/Aggro system (Phase 2.3)
+    void addHate(req::shared::data::ZoneNpc& npc, std::uint64_t entityId, float amount);
+    std::uint64_t getTopHateTarget(const req::shared::data::ZoneNpc& npc) const;
+    void clearHate(req::shared::data::ZoneNpc& npc);
     
     // Combat
     void processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc& target, 
                       const req::shared::protocol::AttackRequestData& request);
     void broadcastAttackResult(const req::shared::protocol::AttackResultData& result);
+    
+    // Death and respawn
+    void handlePlayerDeath(ZonePlayer& player);
+    void respawnPlayer(ZonePlayer& player);
+    void processCorpseDecay();
+    
+    // Dev commands (for testing)
+    void devGiveXp(std::uint64_t characterId, std::int64_t amount);
+    void devSetLevel(std::uint64_t characterId, std::uint32_t level);
+    void devSuicide(std::uint64_t characterId);
     
     // Player disconnect handling
     void removePlayer(std::uint64_t characterId);
@@ -144,7 +166,15 @@ private:
     std::uint16_t            port_{};
     
     // Zone configuration
-    ZoneConfig zoneConfig_{};
+    ZoneConfig zoneConfig_;
+    
+    // World rules and XP tables
+    req::shared::WorldRules worldRules_;
+    req::shared::XpTable xpTable_;
+    
+    // NPC templates and spawn system (Phase 2)
+    req::shared::data::NpcTemplateStore npcTemplates_;
+    req::shared::data::SpawnTable spawnTable_;
     
     // Character persistence
     req::shared::CharacterStore characterStore_;
@@ -158,6 +188,10 @@ private:
     
     // NPCs in this zone
     std::unordered_map<std::uint64_t, req::shared::data::ZoneNpc> npcs_;
+    
+    // Corpses in this zone
+    std::unordered_map<std::uint64_t, req::shared::data::Corpse> corpses_;
+    std::uint64_t nextCorpseId_{ 1 };
 };
 
 } // namespace req::zone

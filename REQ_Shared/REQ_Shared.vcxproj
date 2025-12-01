@@ -219,6 +219,8 @@
     <ClInclude Include="include\req\shared\ProtocolSchemas.h" />
     <ClInclude Include="include\req\shared\Protocol_Character.h" />
     <ClInclude Include="include\req\shared\Protocol_Combat.h" />
+    <ClInclude Include="include\req\shared\Protocol_Dev.h" />
+    <ClInclude Include="include\req\shared\Protocol_Group.h" />
     <ClInclude Include="include\req\shared\Protocol_Login.h" />
     <ClInclude Include="include\req\shared\Protocol_World.h" />
     <ClInclude Include="include\req\shared\Protocol_Zone.h" />
@@ -244,6 +246,7 @@
     <ClCompile Include="src\Logger.cpp" />
     <ClCompile Include="src\Protocol_Character.cpp" />
     <ClCompile Include="src\Protocol_Combat.cpp" />
+    <ClCompile Include="src\Protocol_Dev.cpp" />
     <ClCompile Include="src\Protocol_Login.cpp" />
     <ClCompile Include="src\Protocol_World.cpp" />
     <ClCompile Include="src\Protocol_Zone.cpp" />

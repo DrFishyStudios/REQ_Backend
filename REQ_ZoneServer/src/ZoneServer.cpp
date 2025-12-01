@@ -18,10 +18,13 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
                        const std::string& zoneName,
                        const std::string& address,
                        std::uint16_t port,
+                       const req::shared::WorldRules& worldRules,
+                       const req::shared::XpTable& xpTable,
                        const std::string& charactersPath)
     : acceptor_(ioContext_), tickTimer_(ioContext_), autosaveTimer_(ioContext_),
       worldId_(worldId), zoneId_(zoneId), zoneName_(zoneName), 
-      address_(address), port_(port), characterStore_(charactersPath) {
+      address_(address), port_(port), worldRules_(worldRules), xpTable_(xpTable),
+      characterStore_(charactersPath) {
     using boost::asio::ip::tcp;
     boost::system::error_code ec;
     tcp::endpoint endpoint(boost::asio::ip::make_address(address_, ec), port_);
@@ -82,6 +85,18 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     req::shared::logInfo("zone", std::string{"  broadcastFullState="} + 
         (zoneConfig_.broadcastFullState ? "true" : "false"));
     req::shared::logInfo("zone", std::string{"  interestRadius="} + std::to_string(zoneConfig_.interestRadius));
+    
+    // Log WorldRules information
+    req::shared::logInfo("zone", std::string{"  WorldRules: rulesetId="} + worldRules_.rulesetId);
+    req::shared::logInfo("zone", std::string{"    xp.baseRate="} + std::to_string(worldRules_.xp.baseRate));
+    req::shared::logInfo("zone", std::string{"    xp.groupBonusPerMember="} + std::to_string(worldRules_.xp.groupBonusPerMember));
+    req::shared::logInfo("zone", std::string{"    hotZones="} + std::to_string(worldRules_.hotZones.size()));
+    
+    // Log XP table information
+    if (!xpTable_.entries.empty()) {
+        req::shared::logInfo("zone", std::string{"  XpTable: id="} + xpTable_.id + 
+            ", maxLevel=" + std::to_string(xpTable_.entries.back().level));
+    }
 }
 
 void ZoneServer::run() {
