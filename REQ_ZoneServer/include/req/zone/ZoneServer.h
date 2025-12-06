@@ -15,6 +15,7 @@
 #include "../../REQ_Shared/include/req/shared/Connection.h"
 #include "../../REQ_Shared/include/req/shared/Config.h"
 #include "../../REQ_Shared/include/req/shared/CharacterStore.h"
+#include "../../REQ_Shared/include/req/shared/AccountStore.h"
 #include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
 
 namespace req::zone {
@@ -28,6 +29,9 @@ namespace req::zone {
 struct ZonePlayer {
     std::uint64_t accountId{ 0 };          // Account owner
     std::uint64_t characterId{ 0 };
+    
+    // Admin flag (cached from Account on zone entry)
+    bool isAdmin{ false };
     
     // Connection for sending messages
     std::shared_ptr<req::shared::net::Connection> connection;
@@ -140,6 +144,28 @@ private:
     void devGiveXp(std::uint64_t characterId, std::int64_t amount);
     void devSetLevel(std::uint64_t characterId, std::uint32_t level);
     void devSuicide(std::uint64_t characterId);
+    void devDamageSelf(std::uint64_t characterId, std::int32_t amount);
+    
+    // Group operations (Phase 3)
+    req::shared::data::Group& createGroup(std::uint64_t leaderCharacterId);
+    bool addMemberToGroup(std::uint64_t groupId, std::uint64_t characterId);
+    bool removeMemberFromGroup(std::uint64_t groupId, std::uint64_t characterId);
+    void disbandGroup(std::uint64_t groupId);
+    req::shared::data::Group* getGroupById(std::uint64_t groupId);
+    req::shared::data::Group* getGroupForCharacter(std::uint64_t characterId);
+    bool isCharacterInGroup(std::uint64_t characterId) const;
+    bool isGroupFull(const req::shared::data::Group& group) const;
+    
+    void handleGroupInvite(std::uint64_t inviterCharId, const std::string& targetName);
+    void handleGroupAccept(std::uint64_t targetCharId, std::uint64_t groupId);
+    void handleGroupDecline(std::uint64_t targetCharId, std::uint64_t groupId);
+    void handleGroupLeave(std::uint64_t characterId);
+    void handleGroupKick(std::uint64_t leaderCharId, std::uint64_t targetCharId);
+    void handleGroupDisband(std::uint64_t leaderCharId);
+    std::optional<std::uint64_t> getCharacterGroup(std::uint64_t characterId) const;
+    
+    // Group XP sharing (Phase 3)
+    void awardXpForNpcKill(req::shared::data::ZoneNpc& target, ZonePlayer& attacker);
     
     // Player disconnect handling
     void removePlayer(std::uint64_t characterId);
@@ -178,6 +204,7 @@ private:
     
     // Character persistence
     req::shared::CharacterStore characterStore_;
+    req::shared::AccountStore accountStore_;
     
     // Zone simulation state
     boost::asio::steady_timer tickTimer_;
@@ -192,6 +219,13 @@ private:
     // Corpses in this zone
     std::unordered_map<std::uint64_t, req::shared::data::Corpse> corpses_;
     std::uint64_t nextCorpseId_{ 1 };
+    
+    // Groups in this zone (Phase 3)
+    std::unordered_map<std::uint64_t, req::shared::data::Group> groups_;
+    std::uint64_t nextGroupId_{ 1 };
+    
+    // Character to group lookup (for fast group membership checks)
+    std::unordered_map<std::uint64_t, std::uint64_t> characterToGroupId_;
 };
 
 } // namespace req::zone

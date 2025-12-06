@@ -24,6 +24,7 @@ namespace req::shared {
  *   - createdAt: When the session was created
  *   - lastSeen: Last time this session was validated (updated on each use)
  *   - boundWorldId: World this session is currently bound to (-1 if unbound)
+ *   - isAdmin: Indicates if the session is for an admin account
  * 
  * Note: Sessions are stored in-memory only (no cross-process sharing).
  *       For multi-server deployments, consider Redis or similar.
@@ -34,6 +35,7 @@ struct SessionRecord {
     std::chrono::system_clock::time_point createdAt;
     std::chrono::system_clock::time_point lastSeen;
     std::int32_t boundWorldId{ -1 };  // -1 = not bound to any world
+    bool isAdmin{ false };  // NEW: Admin flag cached from account
 };
 
 /*
@@ -99,9 +101,10 @@ public:
      * Thread-safe.
      * 
      * @param accountId - Account ID that owns this session
+     * @param isAdmin - Whether the account has admin privileges
      * @return Unique session token
      */
-    std::uint64_t createSession(std::uint64_t accountId);
+    std::uint64_t createSession(std::uint64_t accountId, bool isAdmin);
     
     /*
      * Validate a session token

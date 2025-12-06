@@ -144,6 +144,14 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         player.accountId = character->accountId;
         player.connection = connection;
         
+        // Cache admin flag from account
+        auto accountOpt = accountStore_.loadById(character->accountId);
+        if (accountOpt.has_value()) {
+            player.isAdmin = accountOpt->isAdmin;
+        } else {
+            player.isAdmin = false;
+        }
+        
         // Determine spawn position using character data
         spawnPlayer(*character, player);
         
@@ -188,6 +196,7 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         
         req::shared::logInfo("zone", std::string{"[ZonePlayer created] characterId="} + 
             std::to_string(characterId) + ", accountId=" + std::to_string(character->accountId) +
+            ", isAdmin=" + (player.isAdmin ? "true" : "false") +
             ", zoneId=" + std::to_string(zoneId_) + ", pos=(" + 
             std::to_string(player.posX) + "," + std::to_string(player.posY) + "," + 
             std::to_string(player.posZ) + "), yaw=" + std::to_string(player.yawDegrees) +
@@ -446,6 +455,39 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
             std::to_string(devCmd.characterId) + ", command=" + devCmd.command +
             ", param1=" + devCmd.param1 + ", param2=" + devCmd.param2);
         
+        // Find the invoking ZonePlayer
+        auto playerIt = players_.find(devCmd.characterId);
+        if (playerIt == players_.end()) {
+            req::shared::logWarn("zone", "[DEV] DevCommand: player not found in zone");
+            
+            req::shared::protocol::DevCommandResponseData response;
+            response.success = false;
+            response.message = "Player not found in zone";
+            
+            std::string respPayload = req::shared::protocol::buildDevCommandResponsePayload(response);
+            req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+            connection->send(req::shared::MessageType::DevCommandResponse, respBytes);
+            return;
+        }
+        
+        ZonePlayer& player = playerIt->second;
+        
+        // Require admin
+        if (!player.isAdmin) {
+            req::shared::logWarn("zone", std::string{"[DEV] DevCommand rejected for non-admin: charId="} +
+                std::to_string(player.characterId) + ", accountId=" + std::to_string(player.accountId) +
+                ", command=" + devCmd.command);
+            
+            req::shared::protocol::DevCommandResponseData response;
+            response.success = false;
+            response.message = "Dev commands require an admin account";
+            
+            std::string respPayload = req::shared::protocol::buildDevCommandResponsePayload(response);
+            req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
+            connection->send(req::shared::MessageType::DevCommandResponse, respBytes);
+            return;
+        }
+        
         req::shared::protocol::DevCommandResponseData response;
         response.success = true;
         
@@ -472,13 +514,22 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
                 response.message = "Invalid level: " + devCmd.param1;
             }
         } else if (devCmd.command == "respawn") {
-            auto playerIt = players_.find(devCmd.characterId);
-            if (playerIt != players_.end()) {
-                respawnPlayer(playerIt->second);
+            auto respawnPlayerIt = players_.find(devCmd.characterId);
+            if (respawnPlayerIt != players_.end()) {
+                respawnPlayer(respawnPlayerIt->second);
                 response.message = "Player respawned at bind point";
             } else {
                 response.success = false;
                 response.message = "Player not found in zone";
+            }
+        } else if (devCmd.command == "damage_self") {
+            try {
+                std::int32_t amount = std::stoi(devCmd.param1);
+                devDamageSelf(devCmd.characterId, amount);
+                response.message = "Applied " + std::to_string(amount) + " damage";
+            } catch (...) {
+                response.success = false;
+                response.message = "Invalid damage amount: " + devCmd.param1;
             }
         } else {
             response.success = false;

@@ -140,6 +140,7 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
         }
 
         std::uint64_t accountId = 0;
+        bool isAdmin = false;  // NEW: Track admin status
 
         // Handle registration mode
         if (mode == req::shared::protocol::LoginMode::Register) {
@@ -157,6 +158,7 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
             try {
                 auto newAccount = accountStore_.createAccount(username, password);
                 accountId = newAccount.accountId;
+                isAdmin = newAccount.isAdmin;  // NEW: Get admin status
                 
                 req::shared::logInfo("login", std::string{"Registration successful: username="} + username + 
                     ", accountId=" + std::to_string(accountId));
@@ -206,13 +208,15 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
             }
 
             accountId = account->accountId;
+            isAdmin = account->isAdmin;  // NEW: Get admin status
             req::shared::logInfo("login", std::string{"Login successful: username="} + username + 
-                ", accountId=" + std::to_string(accountId));
+                ", accountId=" + std::to_string(accountId) +
+                ", isAdmin=" + (isAdmin ? "true" : "false"));  // NEW: Log admin status
         }
 
-        // Generate session token using SessionService
+        // Generate session token using SessionService with isAdmin
         auto& sessionService = req::shared::SessionService::instance();
-        auto token = sessionService.createSession(accountId);
+        auto token = sessionService.createSession(accountId, isAdmin);  // NEW: Pass isAdmin
         
         // Save session to file for cross-process sharing
         sessionService.saveToFile();
@@ -229,13 +233,14 @@ void LoginServer::handleMessage(const req::shared::MessageHeader& header,
             worldEntries.push_back(entry);
         }
 
-        auto respPayload = req::shared::protocol::buildLoginResponseOkPayload(token, worldEntries);
+        auto respPayload = req::shared::protocol::buildLoginResponseOkPayload(token, worldEntries, isAdmin);  // NEW: Pass isAdmin
         req::shared::net::Connection::ByteArray respBytes(respPayload.begin(), respPayload.end());
         connection->send(req::shared::MessageType::LoginResponse, respBytes);
 
         req::shared::logInfo("login", std::string{"LoginResponse OK: username="} + username + 
             ", accountId=" + std::to_string(accountId) +
-            ", sessionToken=" + std::to_string(token) + 
+            ", sessionToken=" + std::to_string(token) +
+            ", isAdmin=" + (isAdmin ? "true" : "false") +  // NEW: Log isAdmin
             ", worldCount=" + std::to_string(worldEntries.size()));
         
         // Log each world for debugging

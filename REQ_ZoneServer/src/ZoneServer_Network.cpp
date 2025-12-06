@@ -78,9 +78,7 @@ void ZoneServer::onConnectionClosed(ConnectionPtr connection) {
         // Remove player (with safe save)
         removePlayer(characterId);
         
-        // Remove from connection mapping
-        connectionToCharacterId_.erase(it);
-        req::shared::logInfo("zone", "[DISCONNECT] Removed from connection-to-character mapping");
+        req::shared::logInfo("zone", "[DISCONNECT] Player removed (removePlayer handles connection mapping cleanup)");
     } else {
         req::shared::logInfo("zone", "[DISCONNECT] No ZonePlayer associated with this connection");
         req::shared::logInfo("zone", "[DISCONNECT] Likely disconnected before completing ZoneAuthRequest");

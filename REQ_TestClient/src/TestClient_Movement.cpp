@@ -187,11 +187,18 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
     std::cout << "  d - Strafe right\n";
     std::cout << "  j - Jump\n";
     std::cout << "  attack <npcId> - Attack an NPC\n";
-    std::cout << "  suicide - Force character to 0 HP and trigger death\n";
-    std::cout << "  givexp <amount> - Give XP to character\n";
-    std::cout << "  setlevel <level> - Set character level\n";
-    std::cout << "  respawn - Respawn at bind point\n";
-    std::cout << "  [empty] - Stop moving\n";
+    
+    // NEW: Show admin commands only if logged in as admin
+    if (isAdmin_) {
+        std::cout << "\n--- Admin Commands ---\n";
+        std::cout << "  suicide - Force character to 0 HP and trigger death\n";
+        std::cout << "  givexp <amount> - Give XP to character\n";
+        std::cout << "  setlevel <level> - Set character level\n";
+        std::cout << "  damage_self <amount> - Apply damage to character\n";
+        std::cout << "  respawn - Respawn at bind point\n";
+    }
+    
+    std::cout << "\n  [empty] - Stop moving\n";
     std::cout << "  q - Quit movement test\n";
     std::cout << "==============================\n\n";
     
@@ -239,8 +246,12 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
             } else if (header.type == req::shared::MessageType::DevCommandResponse) {
                 req::shared::protocol::DevCommandResponseData response;
                 if (req::shared::protocol::parseDevCommandResponsePayload(msgBody, response)) {
-                    std::cout << "[CLIENT] DevCommand " << (response.success ? "SUCCESS" : "FAILED")
-                             << ": " << response.message << std::endl;
+                    // NEW: Nicer formatted output
+                    if (response.success) {
+                        std::cout << "[DEV] OK: " << response.message << std::endl;
+                    } else {
+                        std::cout << "[DEV] ERROR: " << response.message << std::endl;
+                    }
                 } else {
                     req::shared::logError("TestClient", "Failed to parse DevCommandResponse");
                 }
@@ -294,39 +305,26 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
         
         // Check for dev command: suicide
         if (command == "suicide") {
-            req::shared::protocol::DevCommandData devCmd;
-            devCmd.characterId = localCharacterId;
-            devCmd.command = "suicide";
-            devCmd.param1 = "";
-            devCmd.param2 = "";
-            
-            std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
-            if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
-                req::shared::logError("TestClient", "Failed to send DevCommand");
-            } else {
-                req::shared::logInfo("TestClient", "Sent DevCommand: suicide");
+            if (!isAdmin_) {
+                std::cout << "[DEV] ERROR: Dev commands require an admin account\n";
+                continue;
             }
+            
+            SendDevCommand(*zoneSocket, localCharacterId, "suicide");
             continue;
         }
         
         // Check for dev command: givexp
         if (command.find("givexp ") == 0) {
+            if (!isAdmin_) {
+                std::cout << "[DEV] ERROR: Dev commands require an admin account\n";
+                continue;
+            }
+            
             std::string amountStr = command.substr(7); // Skip "givexp "
             try {
                 std::int64_t amount = std::stoll(amountStr);
-                
-                req::shared::protocol::DevCommandData devCmd;
-                devCmd.characterId = localCharacterId;
-                devCmd.command = "givexp";
-                devCmd.param1 = amountStr;
-                devCmd.param2 = "";
-                
-                std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
-                if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
-                    req::shared::logError("TestClient", "Failed to send DevCommand");
-                } else {
-                    req::shared::logInfo("TestClient", std::string{"Sent DevCommand: givexp "} + amountStr);
-                }
+                SendDevCommand(*zoneSocket, localCharacterId, "givexp", amountStr);
             } catch (const std::exception& e) {
                 std::cout << "Invalid XP amount: '" << amountStr << "'. Usage: givexp <amount>\n";
             }
@@ -335,42 +333,50 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
         
         // Check for dev command: setlevel
         if (command.find("setlevel ") == 0) {
+            if (!isAdmin_) {
+                std::cout << "[DEV] ERROR: Dev commands require an admin account\n";
+                continue;
+            }
+            
             std::string levelStr = command.substr(9); // Skip "setlevel "
             try {
                 std::uint32_t level = std::stoul(levelStr);
-                
-                req::shared::protocol::DevCommandData devCmd;
-                devCmd.characterId = localCharacterId;
-                devCmd.command = "setlevel";
-                devCmd.param1 = levelStr;
-                devCmd.param2 = "";
-                
-                std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
-                if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
-                    req::shared::logError("TestClient", "Failed to send DevCommand");
-                } else {
-                    req::shared::logInfo("TestClient", std::string{"Sent DevCommand: setlevel "} + levelStr);
-                }
+                SendDevCommand(*zoneSocket, localCharacterId, "setlevel", levelStr);
             } catch (const std::exception& e) {
                 std::cout << "Invalid level: '" << levelStr << "'. Usage: setlevel <level>\n";
             }
             continue;
         }
         
+        // NEW: Check for dev command: damage_self
+        if (command.find("damage_self ") == 0) {
+            if (!isAdmin_) {
+                std::cout << "[DEV] ERROR: Dev commands require an admin account\n";
+                continue;
+            }
+            
+            std::string amountStr = command.substr(12); // Skip "damage_self "
+            try {
+                std::int32_t amount = std::stoi(amountStr);
+                if (amount <= 0) {
+                    std::cout << "Damage amount must be positive. Usage: damage_self <amount>\n";
+                } else {
+                    SendDevCommand(*zoneSocket, localCharacterId, "damage_self", amountStr);
+                }
+            } catch (const std::exception& e) {
+                std::cout << "Invalid damage amount: '" << amountStr << "'. Usage: damage_self <amount>\n";
+            }
+            continue;
+        }
+        
         // Check for dev command: respawn
         if (command == "respawn") {
-            req::shared::protocol::DevCommandData devCmd;
-            devCmd.characterId = localCharacterId;
-            devCmd.command = "respawn";
-            devCmd.param1 = "";
-            devCmd.param2 = "";
-            
-            std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
-            if (!sendMessage(*zoneSocket, req::shared::MessageType::DevCommand, payload)) {
-                req::shared::logError("TestClient", "Failed to send DevCommand");
-            } else {
-                req::shared::logInfo("TestClient", "Sent DevCommand: respawn");
+            if (!isAdmin_) {
+                std::cout << "[DEV] ERROR: Dev commands require an admin account\n";
+                continue;
             }
+            
+            SendDevCommand(*zoneSocket, localCharacterId, "respawn");
             continue;
         }
         
@@ -428,6 +434,28 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
     boost::system::error_code ec;
     zoneSocket->shutdown(Tcp::socket::shutdown_both, ec);
     zoneSocket->close(ec);
+}
+
+// NEW: DevCommand helper - reusable for TestClient and future UE client
+void TestClient::SendDevCommand(Tcp::socket& socket,
+                                std::uint64_t characterId,
+                                const std::string& command,
+                                const std::string& param1,
+                                const std::string& param2) {
+    req::shared::protocol::DevCommandData devCmd;
+    devCmd.characterId = characterId;
+    devCmd.command = command;
+    devCmd.param1 = param1;
+    devCmd.param2 = param2;
+    
+    std::string payload = req::shared::protocol::buildDevCommandPayload(devCmd);
+    if (!sendMessage(socket, req::shared::MessageType::DevCommand, payload)) {
+        req::shared::logError("TestClient", "Failed to send DevCommand");
+    } else {
+        req::shared::logInfo("TestClient", std::string{"Sent DevCommand: "} + command +
+            (param1.empty() ? "" : " " + param1) +
+            (param2.empty() ? "" : " " + param2));
+    }
 }
 
 } // namespace req::testclient

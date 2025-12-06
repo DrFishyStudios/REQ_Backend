@@ -40,6 +40,17 @@ enum class MessageType : std::uint16_t {
     // Dev commands (for testing)
     DevCommand            = 50, // Client sends dev command to ZoneServer
     DevCommandResponse    = 51, // ZoneServer responds to dev command
+    
+    // Group system (Phase 3)
+    GroupInviteRequest    = 60, // Client requests to invite another player to group
+    GroupInviteResponse   = 61, // Server responds with invite result
+    GroupAcceptRequest    = 62, // Client accepts a group invite
+    GroupDeclineRequest   = 63, // Client declines a group invite
+    GroupLeaveRequest     = 64, // Client requests to leave current group
+    GroupKickRequest      = 65, // Client (leader) requests to kick a member
+    GroupDisbandRequest   = 66, // Client (leader) requests to disband group
+    GroupUpdateNotify     = 67, // Server notifies client of group membership changes
+    GroupChatMessage      = 68, // Group chat message
 
     // Gameplay (initial placeholders)
     PlayerState       = 100, // Snapshot of player state (DEPRECATED - use PlayerStateSnapshot)

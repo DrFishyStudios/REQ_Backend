@@ -321,4 +321,37 @@ void ZoneServer::devSuicide(std::uint64_t characterId) {
     handlePlayerDeath(player);
 }
 
+void ZoneServer::devDamageSelf(std::uint64_t characterId, std::int32_t amount) {
+    auto playerIt = players_.find(characterId);
+    if (playerIt == players_.end()) {
+        req::shared::logWarn("zone", std::string{"[DEV] damage_self failed - player not found: characterId="} +
+            std::to_string(characterId));
+        return;
+    }
+    
+    ZonePlayer& player = playerIt->second;
+    
+    if (amount <= 0) {
+        req::shared::logWarn("zone", std::string{"[DEV] damage_self failed - invalid amount: "} +
+            std::to_string(amount));
+        return;
+    }
+    
+    std::int32_t oldHp = player.hp;
+    std::int32_t newHp = std::max(0, oldHp - amount);
+    player.hp = newHp;
+    player.combatStatsDirty = true;
+    
+    req::shared::logInfo("zone", std::string{"[DEV] damage_self: characterId="} +
+        std::to_string(characterId) + ", amount=" + std::to_string(amount) +
+        ", hp " + std::to_string(oldHp) + " -> " + std::to_string(newHp));
+    
+    // If HP reached 0, trigger death
+    if (newHp <= 0) {
+        req::shared::logInfo("zone", std::string{"[DEV] damage_self killed player: characterId="} +
+            std::to_string(characterId));
+        handlePlayerDeath(player);
+    }
+}
+
 } // namespace req::zone

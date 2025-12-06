@@ -128,83 +128,9 @@ void ZoneServer::processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc&
             "\", killerCharId=" + std::to_string(attacker.characterId));
         
         // Award XP for kill
-        if (target.level > 0) {
-            // Calculate base XP from target level
-            float baseXp = 10.0f * static_cast<float>(target.level);
-            
-            // Apply level difference modifier (con-based)
-            int levelDiff = target.level - attacker.level;
-            float levelModifier = 1.0f;
-            
-            if (levelDiff >= 3) {
-                levelModifier = 1.5f;   // red con
-            } else if (levelDiff >= 1) {
-                levelModifier = 1.2f;   // yellow
-            } else if (levelDiff <= -3) {
-                levelModifier = 0.25f;  // gray (trivial)
-            } else if (levelDiff <= -1) {
-                levelModifier = 0.5f;   // blue/green
-            }
-            
-            // Apply WorldRules XP base rate
-            float xpRate = worldRules_.xp.baseRate;
-            if (xpRate < 0.0f) {
-                xpRate = 0.0f;
-            }
-            
-            // Check for hot zone multiplier
-            float hotZoneMult = 1.0f;
-            for (const auto& hz : worldRules_.hotZones) {
-                if (hz.zoneId == zoneConfig_.zoneId) {
-                    if (hz.xpMultiplier > 0.0f) {
-                        hotZoneMult = hz.xpMultiplier;
-                    }
-                    break;
-                }
-            }
-            
-            // Calculate final XP
-            float xpFloat = baseXp * levelModifier * xpRate * hotZoneMult;
-            if (xpFloat < 1.0f) {
-                xpFloat = 1.0f;
-            }
-            
-            std::int64_t xpReward = static_cast<std::int64_t>(xpFloat);
-            
-            // Store old values for logging
-            std::uint32_t oldLevel = attacker.level;
-            std::uint64_t oldXp = attacker.xp;
-            
-            // Load character for XP addition
-            auto character = characterStore_.loadById(attacker.characterId);
-            if (character) {
-                // Use AddXp helper to handle level-ups
-                req::shared::AddXp(*character, xpReward, xpTable_, worldRules_);
-                
-                // Update ZonePlayer state from character
-                attacker.level = character->level;
-                attacker.xp = character->xp;
-                attacker.combatStatsDirty = true;
-                
-                // Save character immediately
-                characterStore_.saveCharacter(*character);
-                
-                req::shared::logInfo("zone", std::string{"[COMBAT][XP] killer="} +
-                    std::to_string(attacker.characterId) + ", npc=" + std::to_string(target.npcId) +
-                    ", npcLevel=" + std::to_string(target.level) + ", baseXp=" + std::to_string(static_cast<int>(baseXp)) +
-                    ", finalXp=" + std::to_string(xpReward) + ", level=" + std::to_string(attacker.level) +
-                    ", totalXp=" + std::to_string(attacker.xp));
-                
-                // Check if leveled up
-                if (attacker.level > oldLevel) {
-                    req::shared::logInfo("zone", std::string{"[LEVELUP] Character "} +
-                        std::to_string(attacker.characterId) + " leveled up: " +
-                        std::to_string(oldLevel) + " -> " + std::to_string(attacker.level));
-                }
-            } else {
-                req::shared::logWarn("zone", std::string{"[COMBAT][XP] Failed to load character "} +
-                    std::to_string(attacker.characterId) + " for XP award");
-            }
+        if (targetDied) {
+            // Award XP for kill
+            awardXpForNpcKill(target, attacker);
         }
     }
     
@@ -266,6 +192,178 @@ void ZoneServer::broadcastAttackResult(const req::shared::protocol::AttackResult
     }
     
     req::shared::logInfo("zone", std::string{"[COMBAT] AttackResult broadcasted to "} + std::to_string(sentCount) + " connection(s)");
+}
+
+void ZoneServer::awardXpForNpcKill(req::shared::data::ZoneNpc& target, ZonePlayer& attacker) {
+    if (target.level <= 0) {
+        return;
+    }
+    
+    // Calculate base XP from target level
+    float baseXp = 10.0f * static_cast<float>(target.level);
+    
+    // Apply level difference modifier (con-based)
+    int levelDiff = target.level - attacker.level;
+    float levelModifier = 1.0f;
+    
+    if (levelDiff >= 3) {
+        levelModifier = 1.5f;   // red con
+    } else if (levelDiff >= 1) {
+        levelModifier = 1.2f;   // yellow
+    } else if (levelDiff <= -3) {
+        levelModifier = 0.25f;  // gray (trivial)
+    } else if (levelDiff <= -1) {
+        levelModifier = 0.5f;   // blue/green
+    }
+    
+    // Apply WorldRules XP base rate
+    float xpRate = worldRules_.xp.baseRate;
+    if (xpRate < 0.0f) {
+        xpRate = 0.0f;
+    }
+    
+    // Check for hot zone multiplier
+    float hotZoneMult = 1.0f;
+    for (const auto& hz : worldRules_.hotZones) {
+        if (hz.zoneId == zoneConfig_.zoneId) {
+            if (hz.xpMultiplier > 0.0f) {
+                hotZoneMult = hz.xpMultiplier;
+            }
+            break;
+        }
+    }
+    
+    // Calculate base XP with modifiers (before group consideration)
+    float baseXpWithMods = baseXp * levelModifier * xpRate * hotZoneMult;
+    
+    // Check if killer is in a group
+    auto* group = getGroupForCharacter(attacker.characterId);
+    
+    if (!group) {
+        // Solo kill - award all XP to killer
+        if (baseXpWithMods < 1.0f) {
+            baseXpWithMods = 1.0f;
+        }
+        
+        std::int64_t xpReward = static_cast<std::int64_t>(baseXpWithMods);
+        
+        auto character = characterStore_.loadById(attacker.characterId);
+        if (character) {
+            std::uint32_t oldLevel = character->level;
+            std::uint64_t oldXp = character->xp;
+            
+            req::shared::AddXp(*character, xpReward, xpTable_, worldRules_);
+            
+            attacker.level = character->level;
+            attacker.xp = character->xp;
+            attacker.combatStatsDirty = true;
+            
+            characterStore_.saveCharacter(*character);
+            
+            req::shared::logInfo("zone", std::string{"[COMBAT][XP] Solo kill: killer="} +
+                std::to_string(attacker.characterId) + ", npc=" + std::to_string(target.npcId) +
+                ", npcLevel=" + std::to_string(target.level) + ", baseXp=" + std::to_string(static_cast<int>(baseXp)) +
+                ", finalXp=" + std::to_string(xpReward) + ", level=" + std::to_string(attacker.level) +
+                ", totalXp=" + std::to_string(attacker.xp));
+            
+            if (attacker.level > oldLevel) {
+                req::shared::logInfo("zone", std::string{"[LEVELUP] Character "} +
+                    std::to_string(attacker.characterId) + " leveled up: " +
+                    std::to_string(oldLevel) + " -> " + std::to_string(attacker.level));
+            }
+        }
+    } else {
+        // Group kill - distribute XP among eligible members
+        constexpr float kMaxGroupXpRange = 4000.0f; // Max distance for XP sharing
+        
+        // Build list of eligible members
+        std::vector<std::uint64_t> eligibleMembers;
+        for (std::uint64_t memberId : group->memberCharacterIds) {
+            auto memberIt = players_.find(memberId);
+            if (memberIt == players_.end()) {
+                continue; // Not in this zone
+            }
+            
+            ZonePlayer& member = memberIt->second;
+            if (!member.isInitialized || member.isDead) {
+                continue; // Not alive or not initialized
+            }
+            
+            // Check distance from kill location
+            float dx = member.posX - target.posX;
+            float dy = member.posY - target.posY;
+            float dz = member.posZ - target.posZ;
+            float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            
+            if (distance <= kMaxGroupXpRange) {
+                eligibleMembers.push_back(memberId);
+            }
+        }
+        
+        if (eligibleMembers.empty()) {
+            req::shared::logWarn("zone", std::string{"[XP][Group] No eligible members for XP, groupId="} +
+                std::to_string(group->groupId));
+            return;
+        }
+        
+        // Apply group bonus from WorldRules
+        const std::size_t eligibleCount = eligibleMembers.size();
+        double bonusFactor = 1.0;
+        if (eligibleCount > 1) {
+            bonusFactor += worldRules_.xp.groupBonusPerMember * static_cast<double>(eligibleCount - 1);
+        }
+        
+        const std::int64_t xpPool = static_cast<std::int64_t>(std::round(baseXpWithMods * bonusFactor));
+        
+        // Split XP evenly among eligible members
+        const std::int64_t share = xpPool / static_cast<std::int64_t>(eligibleCount);
+        
+        // Log group XP distribution
+        std::ostringstream memberIds;
+        for (size_t i = 0; i < eligibleMembers.size(); ++i) {
+            if (i > 0) memberIds << ",";
+            memberIds << eligibleMembers[i];
+        }
+        
+        req::shared::logInfo("zone", std::string{"[XP][Group] npc="} + std::to_string(target.npcId) +
+            ", base=" + std::to_string(static_cast<int>(baseXpWithMods)) +
+            ", pool=" + std::to_string(xpPool) +
+            ", members=" + memberIds.str() +
+            ", share=" + std::to_string(share));
+        
+        // Award XP to each eligible member
+        for (std::uint64_t memberId : eligibleMembers) {
+            auto character = characterStore_.loadById(memberId);
+            if (!character) {
+                continue;
+            }
+            
+            std::uint32_t oldLevel = character->level;
+            std::uint64_t oldXp = character->xp;
+            
+            req::shared::AddXp(*character, share, xpTable_, worldRules_);
+            
+            // Update ZonePlayer state
+            auto memberIt = players_.find(memberId);
+            if (memberIt != players_.end()) {
+                memberIt->second.level = character->level;
+                memberIt->second.xp = character->xp;
+                memberIt->second.combatStatsDirty = true;
+            }
+            
+            characterStore_.saveCharacter(*character);
+            
+            req::shared::logInfo("zone", std::string{"[XP][Group] Member "} + std::to_string(memberId) +
+                " awarded " + std::to_string(share) + " XP, level=" + std::to_string(character->level) +
+                ", totalXp=" + std::to_string(character->xp));
+            
+            if (character->level > oldLevel) {
+                req::shared::logInfo("zone", std::string{"[LEVELUP] Character "} +
+                    std::to_string(memberId) + " leveled up: " +
+                    std::to_string(oldLevel) + " -> " + std::to_string(character->level));
+            }
+        }
+    }
 }
 
 } // namespace req::zone

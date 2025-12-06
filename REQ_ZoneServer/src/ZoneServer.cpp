@@ -24,7 +24,7 @@ ZoneServer::ZoneServer(std::uint32_t worldId,
     : acceptor_(ioContext_), tickTimer_(ioContext_), autosaveTimer_(ioContext_),
       worldId_(worldId), zoneId_(zoneId), zoneName_(zoneName), 
       address_(address), port_(port), worldRules_(worldRules), xpTable_(xpTable),
-      characterStore_(charactersPath) {
+      characterStore_(charactersPath), accountStore_("data/accounts") {
     using boost::asio::ip::tcp;
     boost::system::error_code ec;
     tcp::endpoint endpoint(boost::asio::ip::make_address(address_, ec), port_);

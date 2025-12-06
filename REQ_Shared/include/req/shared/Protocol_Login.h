@@ -42,6 +42,7 @@ struct LoginResponseData {
     // Success fields
     SessionToken sessionToken{ InvalidSessionToken };
     std::vector<WorldListEntry> worlds;
+    bool isAdmin{ false };  // NEW: Admin flag from account
     
     // Error fields
     std::string errorCode;
@@ -82,7 +83,7 @@ bool parseLoginRequestPayload(
 /*
  * LoginResponse (LoginServer ? client)
  * 
- * Success format: OK|sessionToken|worldCount|world1Data|world2Data|...
+ * Success format: OK|sessionToken|worldCount|world1Data|world2Data|...|isAdmin
  * 
  * World data format (comma-separated): worldId,worldName,worldHost,worldPort,rulesetId
  * 
@@ -91,8 +92,10 @@ bool parseLoginRequestPayload(
  *   - sessionToken: decimal session token
  *   - worldCount: number of available worlds (decimal)
  *   - worldData: comma-separated world entries (one per available world)
+ *   - isAdmin: "1" if admin, "0" if not (optional for backward compatibility)
  * 
- * Example: "OK|123456789|2|1,MainWorld,127.0.0.1,7778,standard|2,TestWorld,127.0.0.1,7779,pvp"
+ * Example: "OK|123456789|2|1,MainWorld,127.0.0.1,7778,standard|2,TestWorld,127.0.0.1,7779,pvp|1"
+ * Example (non-admin): "OK|123456789|2|1,MainWorld,127.0.0.1,7778,standard|2,TestWorld,127.0.0.1,7779,pvp|0"
  * 
  * Error format: ERR|errorCode|errorMessage
  * 
@@ -105,7 +108,8 @@ bool parseLoginRequestPayload(
  */
 std::string buildLoginResponseOkPayload(
     SessionToken token,
-    const std::vector<WorldListEntry>& worlds);
+    const std::vector<WorldListEntry>& worlds,
+    bool isAdmin = false);  // NEW: Optional isAdmin parameter
 
 std::string buildLoginResponseErrorPayload(
     const std::string& errorCode,

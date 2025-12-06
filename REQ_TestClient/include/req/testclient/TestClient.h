@@ -43,7 +43,15 @@ private:
     req::shared::HandoffToken handoffToken_;
     req::shared::ZoneId zoneId_;
     std::uint64_t selectedCharacterId_;
+    bool isAdmin_{ false };  // NEW: Track if logged-in account is admin
     
+    // NEW: Dev command helper
+    static void SendDevCommand(Tcp::socket& socket,
+                               std::uint64_t characterId,
+                               const std::string& command,
+                               const std::string& param1 = "",
+                               const std::string& param2 = "");
+
     bool doLogin(const std::string& username,
                  const std::string& password,
                  const std::string& clientVersion,

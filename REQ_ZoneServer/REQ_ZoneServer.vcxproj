@@ -196,6 +196,7 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\ZoneInstance.cpp" />
     <ClCompile Include="src\ZoneServer.cpp" />
+    <ClCompile Include="src\ZoneServer_Groups.cpp" />
     <ClCompile Include="src\ZoneServer_Combat.cpp" />
     <ClCompile Include="src\ZoneServer_Death.cpp" />
     <ClCompile Include="src\ZoneServer_Messages.cpp" />

@@ -94,12 +94,14 @@ bool parseLoginRequestPayload(
 
 std::string buildLoginResponseOkPayload(
     SessionToken token,
-    const std::vector<WorldListEntry>& worlds) {
+    const std::vector<WorldListEntry>& worlds,
+    bool isAdmin) {  // NEW: Accept isAdmin parameter
     std::ostringstream oss;
     oss << "OK|" << token << '|' << worlds.size();
     for (const auto& w : worlds) {
         oss << '|' << w.worldId << ',' << w.worldName << ',' << w.worldHost << ',' << w.worldPort << ',' << w.rulesetId;
     }
+    oss << '|' << (isAdmin ? "1" : "0");  // NEW: Append isAdmin flag
     return oss.str();
 }
 
@@ -135,10 +137,19 @@ bool parseLoginResponsePayload(
             req::shared::logError("Protocol", "LoginResponse: failed to parse worldCount");
             return false;
         }
-        if (tokens.size() != 3 + worldCount) {
-            req::shared::logError("Protocol", "LoginResponse: world count mismatch");
+        // NEW: isAdmin field is optional (for backward compatibility)
+        // Expected format: OK|token|worldCount|world1|world2|...|isAdmin
+        // Minimum tokens: 3 + worldCount
+        // Maximum tokens: 3 + worldCount + 1 (with isAdmin)
+        if (tokens.size() < 3 + worldCount) {
+            req::shared::logError("Protocol", "LoginResponse: not enough tokens for worlds");
             return false;
         }
+        if (tokens.size() > 3 + worldCount + 1) {
+            req::shared::logError("Protocol", "LoginResponse: too many tokens");
+            return false;
+        }
+        
         outData.worlds.clear();
         for (std::size_t i = 0; i < worldCount; ++i) {
             auto worldTokens = split(tokens[3 + i], ',');
@@ -154,6 +165,14 @@ bool parseLoginResponsePayload(
             entry.rulesetId = worldTokens[4];
             outData.worlds.push_back(entry);
         }
+        
+        // NEW: Parse optional isAdmin field
+        if (tokens.size() == 3 + worldCount + 1) {
+            outData.isAdmin = (tokens[3 + worldCount] == "1");
+        } else {
+            outData.isAdmin = false;  // Default to false for backward compatibility
+        }
+        
         return true;
     } else if (tokens[0] == "ERR") {
         if (tokens.size() < 3) {

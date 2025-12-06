@@ -392,28 +392,53 @@ struct SpawnTable {
 // Zone-specific Runtime Data
 // ============================================================================
 
+// ============================================================================
+// Group System (Phase 3)
+// ============================================================================
+
+/**
+ * Group
+ * 
+ * Lightweight group model for party-based gameplay.
+ * Supports invite/accept/decline/leave/kick/disband operations.
+ * Integrates with XP distribution on NPC death.
+ */
+struct Group {
+    std::uint64_t groupId{ 0 };                      // Unique group ID
+    std::uint64_t leaderCharacterId{ 0 };            // Group leader
+    std::vector<std::uint64_t> memberCharacterIds;   // All members including leader
+    
+    // Optional: track group formation time for stats
+    std::int64_t createdAtUnix{ 0 };
+};
+
+/**
+ * Helper function to check if a character is in a group
+ */
+inline bool isGroupMember(const Group& group, std::uint64_t characterId) {
+    return std::find(group.memberCharacterIds.begin(), 
+                     group.memberCharacterIds.end(), 
+                     characterId) != group.memberCharacterIds.end();
+}
+
 /**
  * Corpse
  * 
  * Represents a player corpse left after death.
- * Contains position, expiry time, and will eventually hold items.
+ * Contains position, expiry time, and loot items.
  */
 struct Corpse {
-    std::uint64_t corpseId{ 0 };                  // Unique corpse instance ID
-    std::uint64_t ownerCharacterId{ 0 };          // Character who died
-    std::int32_t worldId{ 0 };                    // World where corpse exists
-    std::int32_t zoneId{ 0 };                     // Zone where corpse exists
-    
-    // Position
+    std::uint64_t corpseId{ 0 };
+    std::uint64_t ownerCharacterId{ 0 };
+    std::uint32_t worldId{ 0 };
+    std::uint32_t zoneId{ 0 };
     float posX{ 0.0f };
     float posY{ 0.0f };
     float posZ{ 0.0f };
+    std::int64_t createdAtUnix{ 0 };
+    std::int64_t expiresAtUnix{ 0 };
     
-    // Timestamps (stored as Unix seconds for easy serialization)
-    std::int64_t createdAtUnix{ 0 };              // When corpse was created
-    std::int64_t expiresAtUnix{ 0 };              // When corpse will decay
-    
-    // Future: inventory/loot
+    // TODO Phase 4: Add items vector after ItemInstance is defined
     // std::vector<ItemInstance> items;
 };
 
@@ -514,5 +539,287 @@ struct ZoneNpc {
     // Movement
     float moveSpeed{ 50.0f };               // Movement speed in units/sec
 };
+
+// ============================================================================
+// Item & Inventory System (Phase 4)
+// ============================================================================
+
+/**
+ * ItemType
+ * Categories of items in the game
+ */
+enum class ItemType {
+    Unknown,
+    Weapon,
+    Armor,
+    Consumable,
+    Quest,
+    Crafting,
+    Misc
+};
+
+/**
+ * EquipSlot
+ * Equipment slots where items can be equipped
+ */
+enum class EquipSlot {
+    None,
+    Head,
+    Chest,
+    Legs,
+    Hands,
+    Feet,
+    MainHand,
+    OffHand,
+    Range,
+    Neck,
+    Ears,
+    Finger1,
+    Finger2,
+    Waist,
+    Back
+};
+
+/**
+ * ItemStats
+ * Statistical bonuses provided by an item
+ */
+struct ItemStats {
+    std::int32_t ac{ 0 };
+    std::int32_t hp{ 0 };
+    std::int32_t mana{ 0 };
+    std::int32_t endurance{ 0 };
+    std::int32_t str{ 0 };
+    std::int32_t sta{ 0 };
+    std::int32_t agi{ 0 };
+    std::int32_t dex{ 0 };
+    std::int32_t intl{ 0 };
+    std::int32_t wis{ 0 };
+    std::int32_t cha{ 0 };
+};
+
+/**
+ * ItemFlags
+ * Boolean flags controlling item behavior
+ */
+struct ItemFlags {
+    bool stackable{ false };
+    bool noDrop{ false };
+    bool noTrade{ false };
+    bool temporary{ false };
+    bool questItem{ false };
+    bool bindOnEquip{ false };
+    bool bindOnPickup{ false };
+};
+
+/**
+ * ItemTemplate
+ * Template definition for an item type loaded from items.json
+ */
+struct ItemTemplate {
+    std::int32_t id{ 0 };
+    std::string name;
+    ItemType type{ ItemType::Unknown };
+    std::string subtype;
+    EquipSlot equipSlot{ EquipSlot::None };
+    std::int32_t stackSize{ 1 };
+    std::int32_t requiredLevel{ 1 };
+    std::vector<std::string> classRestrictions;
+    std::vector<std::string> raceRestrictions;
+    ItemStats stats;
+    std::int32_t damage{ 0 };
+    std::int32_t delay{ 0 };
+    std::int64_t valueCopper{ 0 };
+    ItemFlags flags;
+};
+
+/**
+ * ItemTemplateStore
+ * Collection of all item templates
+ */
+struct ItemTemplateStore {
+    std::unordered_map<std::int32_t, ItemTemplate> items;
+};
+
+/**
+ * ItemInstance
+ * Runtime instance of an item in someone's inventory
+ */
+struct ItemInstance {
+    std::int32_t itemId{ 0 };
+    std::int32_t quantity{ 0 };
+    // Future: charges, durability, custom name, etc.
+};
+
+/**
+ * CharacterInventory
+ * Character's inventory and equipment slots
+ */
+struct CharacterInventory {
+    static constexpr std::size_t kInventorySlots = 32;
+    static constexpr std::size_t kBankSlots = 16;
+    static constexpr std::size_t kEquipmentSlots = static_cast<std::size_t>(EquipSlot::Back) + 1;
+    
+    std::array<ItemInstance, kInventorySlots> inventorySlots;
+    std::array<ItemInstance, kEquipmentSlots> equipmentSlots;
+    // Bank stub for future
+    std::array<ItemInstance, kBankSlots> bankSlots;
+};
+
+/**
+ * Helper: Find item template by ID
+ */
+inline const ItemTemplate* findItemTemplate(const ItemTemplateStore& store, std::int32_t id) {
+    auto it = store.items.find(id);
+    if (it != store.items.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+// ============================================================================
+// Loot System (Phase 4)
+// ============================================================================
+
+/**
+ * LootTableEntry
+ * Single entry in a loot table
+ */
+struct LootTableEntry {
+    std::int32_t itemId{ 0 };
+    std::int32_t weight{ 1 };
+    std::int32_t minStack{ 1 };
+    std::int32_t maxStack{ 1 };
+    double chance{ 1.0 };  // 0.0-1.0
+};
+
+/**
+ * LootTable
+ * Collection of items that can drop from an NPC
+ */
+struct LootTable {
+    std::int32_t id{ 0 };
+    std::string name;
+    std::vector<LootTableEntry> entries;
+};
+
+/**
+ * LootTableStore
+ * Collection of all loot tables
+ */
+struct LootTableStore {
+    std::unordered_map<std::int32_t, LootTable> tables;
+};
+
+/**
+ * Helper: Find loot table by ID
+ */
+inline const LootTable* findLootTable(const LootTableStore& store, std::int32_t id) {
+    auto it = store.tables.find(id);
+    if (it != store.tables.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+// ============================================================================
+// Vendor System (Phase 4)
+// ============================================================================
+
+/**
+ * VendorItemEntry
+ * Single item sold by a vendor
+ */
+struct VendorItemEntry {
+    std::int32_t itemId{ 0 };
+    std::int64_t basePriceCopper{ 0 };
+    std::int32_t maxStock{ 0 };        // 0 or negative = infinite
+    std::int32_t currentStock{ 0 };
+};
+
+/**
+ * Vendor
+ * NPC or location that buys/sells items
+ */
+struct Vendor {
+    std::int32_t vendorId{ 0 };
+    std::string name;
+    std::vector<VendorItemEntry> items;
+    double buyModifier{ 1.0 };   // Multiplier when player buys
+    double sellModifier{ 0.5 };  // Multiplier when player sells
+};
+
+/**
+ * VendorStore
+ * Collection of all vendors
+ */
+struct VendorStore {
+    std::unordered_map<std::int32_t, Vendor> vendors;
+};
+
+/**
+ * Helper: Find vendor by ID
+ */
+inline const Vendor* findVendor(const VendorStore& store, std::int32_t id) {
+    auto it = store.vendors.find(id);
+    if (it != store.vendors.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+// ============================================================================
+// Crafting System (Phase 4)
+// ============================================================================
+
+/**
+ * RecipeInput
+ * Required ingredient for a recipe
+ */
+struct RecipeInput {
+    std::int32_t itemId{ 0 };
+    std::int32_t quantity{ 0 };
+};
+
+/**
+ * RecipeOutput
+ * Result of crafting a recipe
+ */
+struct RecipeOutput {
+    std::int32_t itemId{ 0 };
+    std::int32_t quantity{ 0 };
+};
+
+/**
+ * Recipe
+ * Crafting recipe definition
+ */
+struct Recipe {
+    std::int32_t id{ 0 };
+    std::string name;
+    std::vector<RecipeInput> inputs;
+    RecipeOutput output;
+    std::int32_t skillRequired{ 0 };
+    std::string stationTag;  // e.g. "forge", "loom", "any"
+};
+
+/**
+ * RecipeStore
+ * Collection of all recipes
+ */
+struct RecipeStore {
+    std::unordered_map<std::int32_t, Recipe> recipes;
+};
+
+/**
+ * Helper: Find recipe by ID
+ */
+inline const Recipe* findRecipe(const RecipeStore& store, std::int32_t id) {
+    auto it = store.recipes.find(id);
+    if (it != store.recipes.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
 
 } // namespace req::shared::data

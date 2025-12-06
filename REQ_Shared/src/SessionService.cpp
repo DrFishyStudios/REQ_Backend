@@ -65,7 +65,7 @@ std::uint64_t SessionService::generateSessionToken() {
     return token;
 }
 
-std::uint64_t SessionService::createSession(std::uint64_t accountId) {
+std::uint64_t SessionService::createSession(std::uint64_t accountId, bool isAdmin) {
     std::scoped_lock lock(mutex_);
     
     auto token = generateSessionToken();
@@ -77,11 +77,13 @@ std::uint64_t SessionService::createSession(std::uint64_t accountId) {
     record.createdAt = now;
     record.lastSeen = now;
     record.boundWorldId = -1; // Not bound to any world yet
+    record.isAdmin = isAdmin;  // NEW: Store admin flag
     
     sessions_[token] = record;
     
     logInfo("SessionService", std::string{"Session created: accountId="} + 
-        std::to_string(accountId) + ", sessionToken=" + std::to_string(token));
+        std::to_string(accountId) + ", sessionToken=" + std::to_string(token) +
+        ", isAdmin=" + (isAdmin ? "true" : "false"));  // NEW: Log isAdmin
     
     return token;
 }
@@ -102,7 +104,8 @@ std::optional<SessionRecord> SessionService::validateSession(std::uint64_t sessi
     
     logInfo("SessionService", std::string{"Session validated: sessionToken="} + 
         std::to_string(sessionToken) + ", accountId=" + std::to_string(it->second.accountId) + 
-        ", boundWorldId=" + std::to_string(it->second.boundWorldId));
+        ", boundWorldId=" + std::to_string(it->second.boundWorldId) +
+        ", isAdmin=" + (it->second.isAdmin ? "true" : "false"));  // NEW: Log isAdmin
     
     return it->second;
 }
@@ -337,6 +340,21 @@ bool SessionService::loadFromFile(const std::string& path) {
             record.boundWorldId = std::stoi(worldStr);
         }
         
+        // NEW: Parse isAdmin
+        std::size_t adminPos = objContent.find("\"isAdmin\"");
+        if (adminPos != std::string::npos) {
+            std::size_t colonPos = objContent.find(':', adminPos);
+            std::size_t commaPos = objContent.find(',', colonPos);
+            if (commaPos == std::string::npos) commaPos = objContent.find('}', colonPos);
+            std::string adminStr = objContent.substr(colonPos + 1, commaPos - colonPos - 1);
+            // Trim whitespace
+            adminStr.erase(0, adminStr.find_first_not_of(" \t\n\r"));
+            adminStr.erase(adminStr.find_last_not_of(" \t\n\r") + 1);
+            record.isAdmin = (adminStr == "true");
+        } else {
+            record.isAdmin = false;  // Default to false for backward compatibility
+        }
+        
         // Add to sessions
         if (record.sessionToken != 0 && record.accountId != 0) {
             sessions_[record.sessionToken] = record;
@@ -392,7 +410,8 @@ bool SessionService::saveToFile(const std::string& path) const {
         file << "      \"accountId\": " << record.accountId << ",\n";
         file << "      \"createdAt\": \"" << timePointToString(record.createdAt) << "\",\n";
         file << "      \"lastSeen\": \"" << timePointToString(record.lastSeen) << "\",\n";
-        file << "      \"boundWorldId\": " << record.boundWorldId << "\n";
+        file << "      \"boundWorldId\": " << record.boundWorldId << ",\n";
+        file << "      \"isAdmin\": " << (record.isAdmin ? "true" : "false") << "\n";  // NEW
         file << "    }";
     }
     

@@ -312,6 +312,12 @@ bool TestClient::doLogin(const std::string& username,
         return false;
     }
     
+    // NEW: Store admin status
+    isAdmin_ = response.isAdmin;
+    if (isAdmin_) {
+        req::shared::logInfo("TestClient", "Logged in as ADMIN account");
+    }
+    
     if (response.worlds.empty()) {
         req::shared::logError("TestClient", "No worlds available");
         return false;

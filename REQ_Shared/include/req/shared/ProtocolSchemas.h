@@ -7,6 +7,7 @@
 #include "Protocol_Character.h"
 #include "Protocol_Combat.h"
 #include "Protocol_Dev.h"
+#include "Protocol_Group.h"
 
 /*
  * ProtocolSchemas.h
@@ -24,6 +25,7 @@
  *   - Protocol_Character.h (CharacterList, CharacterCreate, EnterWorld, etc.)
  *   - Protocol_Combat.h (AttackRequest, AttackResult, etc.)
  *   - Protocol_Dev.h (DevCommand, DevCommandResponse, etc.)
+ *   - Protocol_Group.h (GroupInviteRequest, GroupAcceptRequest, etc.)
  * 
  * All declarations remain in the req::shared::protocol namespace.
  * 

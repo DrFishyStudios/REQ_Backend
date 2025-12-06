@@ -246,6 +246,7 @@
     <ClCompile Include="src\Logger.cpp" />
     <ClCompile Include="src\Protocol_Character.cpp" />
     <ClCompile Include="src\Protocol_Combat.cpp" />
+    <ClCompile Include="src\Protocol_Group.cpp" />
     <ClCompile Include="src\Protocol_Dev.cpp" />
     <ClCompile Include="src\Protocol_Login.cpp" />
     <ClCompile Include="src\Protocol_World.cpp" />
