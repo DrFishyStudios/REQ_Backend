@@ -81,6 +81,64 @@ struct PlayerStateSnapshotData {
     std::vector<PlayerStateEntry> players;             // All players in this snapshot
 };
 
+/*
+ * EntitySpawnData
+ * 
+ * Represents an entity (player or NPC) spawning in the zone.
+ * Sent when a player enters the zone (for all existing entities) or when a new NPC spawns.
+ * 
+ * Entity Types:
+ *   0 = Player (characterId is the player's character ID)
+ *   1 = NPC (characterId is the NPC instance ID)
+ */
+struct EntitySpawnData {
+    std::uint64_t entityId{ 0 };          // Unique entity identifier (characterId for players, npcId for NPCs)
+    std::uint32_t entityType{ 0 };        // 0=Player, 1=NPC
+    std::uint32_t templateId{ 0 };        // Template/model ID (for NPCs, the NPC template ID; for players, race ID)
+    std::string name;                      // Display name
+    float posX{ 0.0f };                   // Spawn position X
+    float posY{ 0.0f };                   // Spawn position Y
+    float posZ{ 0.0f };                   // Spawn position Z
+    float heading{ 0.0f };                // Facing direction (0-360 degrees)
+    std::uint32_t level{ 1 };             // Entity level
+    std::int32_t hp{ 100 };               // Current HP
+    std::int32_t maxHp{ 100 };            // Maximum HP
+};
+
+/*
+ * EntityUpdateData
+ * 
+ * Represents a positional and state update for an entity.
+ * Sent periodically for NPCs at server tick rate (e.g., 5-10 Hz).
+ * Includes position, heading, and HP for interpolation/display.
+ */
+struct EntityUpdateData {
+    std::uint64_t entityId{ 0 };          // Entity identifier
+    float posX{ 0.0f };                   // Current position X
+    float posY{ 0.0f };                   // Current position Y
+    float posZ{ 0.0f };                   // Current position Z
+    float heading{ 0.0f };                // Facing direction (0-360 degrees)
+    std::int32_t hp{ 100 };               // Current HP
+    std::uint8_t state{ 0 };              // Entity state (0=Idle, 1=Combat, 2=Dead, etc.)
+};
+
+/*
+ * EntityDespawnData
+ * 
+ * Represents an entity leaving the zone or dying.
+ * Sent when an NPC dies, respawns, or when a player disconnects.
+ * 
+ * Despawn Reasons:
+ *   0 = Disconnect (player logged out)
+ *   1 = Death (entity died)
+ *   2 = Despawn (NPC respawn cycle)
+ *   3 = OutOfRange (entity left interest radius)
+ */
+struct EntityDespawnData {
+    std::uint64_t entityId{ 0 };          // Entity identifier
+    std::uint32_t reason{ 0 };            // Despawn reason code
+};
+
 // ============================================================================
 // ZoneAuthRequest / ZoneAuthResponse
 // ============================================================================
@@ -219,5 +277,87 @@ std::string buildPlayerStateSnapshotPayload(
 bool parsePlayerStateSnapshotPayload(
     const std::string& payload,
     PlayerStateSnapshotData& outData);
+
+// ============================================================================
+// EntitySpawn (ZoneServer ? client)
+// ============================================================================
+
+/*
+ * EntitySpawn (ZoneServer ? client)
+ * 
+ * Payload format: entityId|entityType|templateId|name|posX|posY|posZ|heading|level|hp|maxHp
+ * 
+ * Fields:
+ *   - entityId: decimal entity identifier (characterId for players, npcId for NPCs)
+ *   - entityType: 0=Player, 1=NPC
+ *   - templateId: template/model ID (NPC template ID for NPCs, race ID for players)
+ *   - name: display name (may contain spaces)
+ *   - posX, posY, posZ: spawn position floats
+ *   - heading: facing direction (0-360 degrees)
+ *   - level: entity level (uint32)
+ *   - hp: current HP (int32)
+ *   - maxHp: maximum HP (int32)
+ * 
+ * Example: "1001|1|5001|A Decaying Skeleton|100.0|50.0|0.0|90.0|1|20|20"
+ * 
+ * Note: Sent to player when entering zone (for all existing entities) and when new entities spawn.
+ */
+std::string buildEntitySpawnPayload(
+    const EntitySpawnData& data);
+
+bool parseEntitySpawnPayload(
+    const std::string& payload,
+    EntitySpawnData& outData);
+
+// ============================================================================
+// EntityUpdate (ZoneServer ? client)
+// ============================================================================
+
+/*
+ * EntityUpdate (ZoneServer ? client)
+ * 
+ * Payload format: entityId|posX|posY|posZ|heading|hp|state
+ * 
+ * Fields:
+ *   - entityId: decimal entity identifier
+ *   - posX, posY, posZ: current position floats
+ *   - heading: facing direction (0-360 degrees)
+ *   - hp: current HP (int32)
+ *   - state: entity state (0=Idle, 1=Combat, 2=Dead, etc.)
+ * 
+ * Example: "1001|105.5|52.3|0.0|95.0|15|1"
+ * 
+ * Note: Sent periodically for NPCs (e.g., 5-10 Hz) for position and HP updates.
+ */
+std::string buildEntityUpdatePayload(
+    const EntityUpdateData& data);
+
+bool parseEntityUpdatePayload(
+    const std::string& payload,
+    EntityUpdateData& outData);
+
+// ============================================================================
+// EntityDespawn (ZoneServer ? client)
+// ============================================================================
+
+/*
+ * EntityDespawn (ZoneServer ? client)
+ * 
+ * Payload format: entityId|reason
+ * 
+ * Fields:
+ *   - entityId: decimal entity identifier
+ *   - reason: despawn reason (0=Disconnect, 1=Death, 2=Despawn, 3=OutOfRange)
+ * 
+ * Example: "1001|1" (NPC 1001 died)
+ * 
+ * Note: Sent when entity leaves zone, dies, or exits client's interest radius.
+ */
+std::string buildEntityDespawnPayload(
+    const EntityDespawnData& data);
+
+bool parseEntityDespawnPayload(
+    const std::string& payload,
+    EntityDespawnData& outData);
 
 } // namespace req::shared::protocol

@@ -5,6 +5,7 @@
 #include <string>
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <boost/asio.hpp>
 
@@ -17,6 +18,7 @@
 #include "../../REQ_Shared/include/req/shared/CharacterStore.h"
 #include "../../REQ_Shared/include/req/shared/AccountStore.h"
 #include "../../REQ_Shared/include/req/shared/ProtocolSchemas.h"
+#include "NpcSpawnData.h"
 
 namespace req::zone {
 
@@ -80,6 +82,9 @@ struct ZonePlayer {
     bool isInitialized{ false };
     bool isDirty{ false };  // Position changed since last save
     bool combatStatsDirty{ false };  // Combat stats changed (HP/mana/XP)
+    
+    // Entity tracking - which entities this player knows about
+    std::unordered_set<std::uint64_t> knownEntities;  // Set of entity IDs player has received spawn messages for
 };
 
 // Use shared ZoneConfig from Config.h (no duplicate definition needed)
@@ -122,6 +127,7 @@ private:
     
     // NPC management
     void loadNpcsForZone();
+    void instantiateNpcsFromSpawnData();
     void updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds);
     void updateNpcAi(req::shared::data::ZoneNpc& npc, float deltaSeconds);
     
@@ -145,6 +151,11 @@ private:
     void devSetLevel(std::uint64_t characterId, std::uint32_t level);
     void devSuicide(std::uint64_t characterId);
     void devDamageSelf(std::uint64_t characterId, std::int32_t amount);
+    
+    // GM / Admin commands for NPC management
+    void adminSpawnNpc(std::uint64_t gmCharacterId, std::int32_t npcId);
+    void adminSpawnCamp(std::uint64_t gmCharacterId, const std::string& spawnGroup);
+    void adminDespawnCamp(std::uint64_t gmCharacterId, const std::string& spawnGroup);
     
     // Group operations (Phase 3)
     req::shared::data::Group& createGroup(std::uint64_t leaderCharacterId);
@@ -177,6 +188,15 @@ private:
     void updateSimulation(float dt);
     void broadcastSnapshots();
     
+    // Entity spawn/update/despawn broadcasting
+    void sendEntitySpawn(ConnectionPtr connection, std::uint64_t entityId);
+    void broadcastEntitySpawn(std::uint64_t entityId);
+    void sendEntityUpdate(ConnectionPtr connection, std::uint64_t entityId);
+    void broadcastEntityUpdates();
+    void sendEntityDespawn(ConnectionPtr connection, std::uint64_t entityId, std::uint32_t reason);
+    void broadcastEntityDespawn(std::uint64_t entityId, std::uint32_t reason);
+    void sendAllKnownEntities(ConnectionPtr connection, std::uint64_t characterId);
+    
     // Auto-save tick
     void scheduleAutosave();
     void onAutosave(const boost::system::error_code& ec);
@@ -198,7 +218,10 @@ private:
     req::shared::WorldRules worldRules_;
     req::shared::XpTable xpTable_;
     
-    // NPC templates and spawn system (Phase 2)
+    // NPC data repository (Phase 2 - new spawn system)
+    NpcDataRepository npcDataRepository_;
+    
+    // NPC templates and spawn system (Phase 2 - old system, deprecated)
     req::shared::data::NpcTemplateStore npcTemplates_;
     req::shared::data::SpawnTable spawnTable_;
     
@@ -215,6 +238,7 @@ private:
     
     // NPCs in this zone
     std::unordered_map<std::uint64_t, req::shared::data::ZoneNpc> npcs_;
+    std::uint64_t nextNpcInstanceId_{ 1 };  // Counter for unique NPC instance IDs
     
     // Corpses in this zone
     std::unordered_map<std::uint64_t, req::shared::data::Corpse> corpses_;

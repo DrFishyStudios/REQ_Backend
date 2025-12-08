@@ -37,6 +37,11 @@ enum class MessageType : std::uint16_t {
     AttackRequest         = 42, // Client requests to attack a target
     AttackResult          = 43, // ZoneServer sends attack result to client(s)
     
+    // Entity management (ZoneServer ? client only)
+    EntitySpawn           = 44, // ZoneServer notifies client of entity spawn (player or NPC)
+    EntityUpdate          = 45, // ZoneServer sends periodic entity position/state update
+    EntityDespawn         = 46, // ZoneServer notifies client of entity despawn/death
+    
     // Dev commands (for testing)
     DevCommand            = 50, // Client sends dev command to ZoneServer
     DevCommandResponse    = 51, // ZoneServer responds to dev command

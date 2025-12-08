@@ -335,4 +335,205 @@ bool parsePlayerStateSnapshotPayload(
     return true;
 }
 
+// ============================================================================
+// EntitySpawn
+// ============================================================================
+
+std::string buildEntitySpawnPayload(
+    const EntitySpawnData& data) {
+    std::ostringstream oss;
+    oss << data.entityId << '|'
+        << data.entityType << '|'
+        << data.templateId << '|'
+        << data.name << '|'
+        << data.posX << '|'
+        << data.posY << '|'
+        << data.posZ << '|'
+        << data.heading << '|'
+        << data.level << '|'
+        << data.hp << '|'
+        << data.maxHp;
+    return oss.str();
+}
+
+bool parseEntitySpawnPayload(
+    const std::string& payload,
+    EntitySpawnData& outData) {
+    auto tokens = split(payload, '|');
+    if (tokens.size() < 11) {
+        req::shared::logError("Protocol", std::string{"EntitySpawn: expected 11 fields, got "} + 
+            std::to_string(tokens.size()));
+        return false;
+    }
+    
+    // Parse entityId
+    if (!parseUInt(tokens[0], outData.entityId)) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse entityId");
+        return false;
+    }
+    
+    // Parse entityType
+    if (!parseUInt(tokens[1], outData.entityType)) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse entityType");
+        return false;
+    }
+    
+    // Parse templateId
+    if (!parseUInt(tokens[2], outData.templateId)) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse templateId");
+        return false;
+    }
+    
+    // Parse name (field 3)
+    outData.name = tokens[3];
+    
+    // Parse position (posX, posY, posZ)
+    try {
+        outData.posX = std::stof(tokens[4]);
+        outData.posY = std::stof(tokens[5]);
+        outData.posZ = std::stof(tokens[6]);
+    } catch (...) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse position");
+        return false;
+    }
+    
+    // Parse heading
+    try {
+        outData.heading = std::stof(tokens[7]);
+    } catch (...) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse heading");
+        return false;
+    }
+    
+    // Parse level
+    if (!parseUInt(tokens[8], outData.level)) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse level");
+        return false;
+    }
+    
+    // Parse hp
+    try {
+        outData.hp = std::stoi(tokens[9]);
+    } catch (...) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse hp");
+        return false;
+    }
+    
+    // Parse maxHp
+    try {
+        outData.maxHp = std::stoi(tokens[10]);
+    } catch (...) {
+        req::shared::logError("Protocol", "EntitySpawn: failed to parse maxHp");
+        return false;
+    }
+    
+    return true;
+}
+
+// ============================================================================
+// EntityUpdate
+// ============================================================================
+
+std::string buildEntityUpdatePayload(
+    const EntityUpdateData& data) {
+    std::ostringstream oss;
+    oss << data.entityId << '|'
+        << data.posX << '|'
+        << data.posY << '|'
+        << data.posZ << '|'
+        << data.heading << '|'
+        << data.hp << '|'
+        << static_cast<std::uint32_t>(data.state);
+    return oss.str();
+}
+
+bool parseEntityUpdatePayload(
+    const std::string& payload,
+    EntityUpdateData& outData) {
+    auto tokens = split(payload, '|');
+    if (tokens.size() < 7) {
+        req::shared::logError("Protocol", std::string{"EntityUpdate: expected 7 fields, got "} + 
+            std::to_string(tokens.size()));
+        return false;
+    }
+    
+    // Parse entityId
+    if (!parseUInt(tokens[0], outData.entityId)) {
+        req::shared::logError("Protocol", "EntityUpdate: failed to parse entityId");
+        return false;
+    }
+    
+    // Parse position (posX, posY, posZ)
+    try {
+        outData.posX = std::stof(tokens[1]);
+        outData.posY = std::stof(tokens[2]);
+        outData.posZ = std::stof(tokens[3]);
+    } catch (...) {
+        req::shared::logError("Protocol", "EntityUpdate: failed to parse position");
+        return false;
+    }
+    
+    // Parse heading
+    try {
+        outData.heading = std::stof(tokens[4]);
+    } catch (...) {
+        req::shared::logError("Protocol", "EntityUpdate: failed to parse heading");
+        return false;
+    }
+    
+    // Parse hp
+    try {
+        outData.hp = std::stoi(tokens[5]);
+    } catch (...) {
+        req::shared::logError("Protocol", "EntityUpdate: failed to parse hp");
+        return false;
+    }
+    
+    // Parse state
+    std::uint32_t stateValue = 0;
+    if (!parseUInt(tokens[6], stateValue)) {
+        req::shared::logError("Protocol", "EntityUpdate: failed to parse state");
+        return false;
+    }
+    outData.state = static_cast<std::uint8_t>(stateValue);
+    
+    return true;
+}
+
+// ============================================================================
+// EntityDespawn
+// ============================================================================
+
+std::string buildEntityDespawnPayload(
+    const EntityDespawnData& data) {
+    std::ostringstream oss;
+    oss << data.entityId << '|' << data.reason;
+    return oss.str();
+}
+
+bool parseEntityDespawnPayload(
+    const std::string& payload,
+    EntityDespawnData& outData) {
+    auto tokens = split(payload, '|');
+    if (tokens.size() < 2) {
+        req::shared::logError("Protocol", std::string{"EntityDespawn: expected 2 fields, got "} + 
+            std::to_string(tokens.size()));
+        return false;
+    }
+    
+    // Parse entityId
+    if (!parseUInt(tokens[0], outData.entityId)) {
+        req::shared::logError("Protocol", "EntityDespawn: failed to parse entityId");
+        return false;
+    }
+    
+    // Parse reason
+    if (!parseUInt(tokens[1], outData.reason)) {
+        req::shared::logError("Protocol", "EntityDespawn: failed to parse reason");
+        return false;
+    }
+    
+    return true;
+}
+
 } // namespace req::shared::protocol

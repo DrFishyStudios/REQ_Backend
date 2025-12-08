@@ -194,8 +194,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\NpcSpawnData.cpp" />
     <ClCompile Include="src\ZoneInstance.cpp" />
     <ClCompile Include="src\ZoneServer.cpp" />
+    <ClCompile Include="src\ZoneServer_EntityMessages.cpp" />
     <ClCompile Include="src\ZoneServer_Groups.cpp" />
     <ClCompile Include="src\ZoneServer_Combat.cpp" />
     <ClCompile Include="src\ZoneServer_Death.cpp" />
@@ -207,6 +209,7 @@
     <ClCompile Include="src\ZoneServer_Simulation.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\req\zone\NpcSpawnData.h" />
     <ClInclude Include="include\req\zone\ZoneInstance.h" />
     <ClInclude Include="include\req\zone\ZoneServer.h" />
   </ItemGroup>

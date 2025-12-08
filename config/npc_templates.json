@@ -1,0 +1,180 @@
+{
+  "templates": [
+    {
+      "npc_id": 1001,
+      "name": "A Decaying Skeleton",
+      "level": 1,
+      "archetype": "melee_trash",
+
+      "hp": 20,
+      "ac": 10,
+      "min_damage": 1,
+      "max_damage": 3,
+
+      "faction_id": 100,
+      "loot_table_id": 10,
+      "visual_id": "skeleton_basic",
+
+      "is_social": true,
+      "can_flee": false,
+      "is_roamer": false,
+
+      "aggro_radius": 8.0,
+      "assist_radius": 12.0
+    },
+    {
+      "npc_id": 1002,
+      "name": "A Rat",
+      "level": 1,
+      "archetype": "critter",
+
+      "hp": 10,
+      "ac": 5,
+      "min_damage": 1,
+      "max_damage": 2,
+
+      "faction_id": 101,
+      "loot_table_id": 11,
+      "visual_id": "rat_basic",
+
+      "is_social": false,
+      "can_flee": true,
+      "is_roamer": true,
+
+      "aggro_radius": 5.0,
+      "assist_radius": 0.0
+    },
+    {
+      "npc_id": 1003,
+      "name": "A Fire Beetle",
+      "level": 2,
+      "archetype": "melee_trash",
+
+      "hp": 30,
+      "ac": 12,
+      "min_damage": 2,
+      "max_damage": 5,
+
+      "faction_id": 101,
+      "loot_table_id": 12,
+      "visual_id": "beetle_fire",
+
+      "is_social": false,
+      "can_flee": false,
+      "is_roamer": false,
+
+      "aggro_radius": 6.0,
+      "assist_radius": 0.0
+    },
+    {
+      "npc_id": 1004,
+      "name": "A Snake",
+      "level": 1,
+      "archetype": "critter",
+
+      "hp": 15,
+      "ac": 8,
+      "min_damage": 1,
+      "max_damage": 4,
+
+      "faction_id": 101,
+      "loot_table_id": 11,
+      "visual_id": "snake_basic",
+
+      "is_social": false,
+      "can_flee": true,
+      "is_roamer": true,
+
+      "aggro_radius": 5.0,
+      "assist_radius": 0.0
+    },
+    {
+      "npc_id": 1005,
+      "name": "A Zombie",
+      "level": 3,
+      "archetype": "melee_trash",
+
+      "hp": 50,
+      "ac": 15,
+      "min_damage": 3,
+      "max_damage": 7,
+
+      "faction_id": 100,
+      "loot_table_id": 10,
+      "visual_id": "zombie_basic",
+
+      "is_social": true,
+      "can_flee": false,
+      "is_roamer": false,
+
+      "aggro_radius": 10.0,
+      "assist_radius": 15.0
+    },
+    {
+      "npc_id": 2001,
+      "name": "An Orc Grunt",
+      "level": 2,
+      "archetype": "melee_trash",
+
+      "hp": 35,
+      "ac": 12,
+      "min_damage": 2,
+      "max_damage": 5,
+
+      "faction_id": 200,
+      "loot_table_id": 20,
+      "visual_id": "orc_grunt",
+
+      "is_social": true,
+      "can_flee": false,
+      "is_roamer": false,
+
+      "aggro_radius": 9.0,
+      "assist_radius": 15.0
+    },
+    {
+      "npc_id": 2002,
+      "name": "An Orc Scout",
+      "level": 3,
+      "archetype": "melee_ranged_hybrid",
+
+      "hp": 40,
+      "ac": 14,
+      "min_damage": 3,
+      "max_damage": 6,
+
+      "faction_id": 200,
+      "loot_table_id": 21,
+      "visual_id": "orc_scout",
+
+      "is_social": true,
+      "can_flee": false,
+      "is_roamer": true,
+
+      "aggro_radius": 12.0,
+      "assist_radius": 18.0
+    },
+    {
+      "npc_id": 2003,
+      "name": "Orc Camp Officer Grak",
+      "level": 4,
+      "archetype": "named_melee",
+
+      "hp": 80,
+      "ac": 18,
+      "min_damage": 4,
+      "max_damage": 10,
+
+      "faction_id": 200,
+      "loot_table_id": 22,
+      "visual_id": "orc_officer",
+
+      "is_social": true,
+      "can_flee": false,
+      "is_roamer": false,
+
+      "aggro_radius": 10.0,
+      "assist_radius": 20.0
+    }
+  ]
+}

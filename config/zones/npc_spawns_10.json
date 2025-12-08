@@ -1,0 +1,175 @@
+{
+  "zone_id": 10,
+  "spawns": [
+    {
+      "spawn_id": 1,
+      "npc_id": 1001,
+      
+      "position": {
+        "x": 100.0,
+        "y": 50.0,
+        "z": 0.0
+      },
+      
+      "heading": 0.0,
+      
+      "respawn_seconds": 120,
+      "respawn_variance_seconds": 30,
+      
+      "spawn_group": "skeleton_camp"
+    },
+    {
+      "spawn_id": 2,
+      "npc_id": 1001,
+      
+      "position": {
+        "x": 150.0,
+        "y": 60.0,
+        "z": 0.0
+      },
+      
+      "heading": 90.0,
+      
+      "respawn_seconds": 120,
+      "respawn_variance_seconds": 30,
+      
+      "spawn_group": "skeleton_camp"
+    },
+    {
+      "spawn_id": 3,
+      "npc_id": 1002,
+      
+      "position": {
+        "x": 200.0,
+        "y": 75.0,
+        "z": 0.0
+      },
+      
+      "heading": 45.0,
+      
+      "respawn_seconds": 90,
+      "respawn_variance_seconds": 15,
+      
+      "spawn_group": "rat_spawns"
+    },
+    {
+      "spawn_id": 4,
+      "npc_id": 1003,
+      
+      "position": {
+        "x": 175.0,
+        "y": 120.0,
+        "z": 0.0
+      },
+      
+      "heading": 180.0,
+      
+      "respawn_seconds": 180,
+      "respawn_variance_seconds": 45,
+      
+      "spawn_group": "beetle_spawns"
+    },
+    {
+      "spawn_id": 5,
+      "npc_id": 1004,
+      
+      "position": {
+        "x": 50.0,
+        "y": 200.0,
+        "z": 0.0
+      },
+      
+      "heading": 270.0,
+      
+      "respawn_seconds": 90,
+      "respawn_variance_seconds": 15,
+      
+      "spawn_group": "snake_spawns"
+    },
+    {
+      "spawn_id": 10,
+      "npc_id": 2001,
+      
+      "position": {
+        "x": -50.0,
+        "y": 50.0,
+        "z": 0.0
+      },
+      
+      "heading": 0.0,
+      
+      "respawn_seconds": 90,
+      "respawn_variance_seconds": 20,
+      
+      "spawn_group": "newbie_orc_camp"
+    },
+    {
+      "spawn_id": 11,
+      "npc_id": 2001,
+      
+      "position": {
+        "x": -30.0,
+        "y": 60.0,
+        "z": 0.0
+      },
+      
+      "heading": 45.0,
+      
+      "respawn_seconds": 90,
+      "respawn_variance_seconds": 20,
+      
+      "spawn_group": "newbie_orc_camp"
+    },
+    {
+      "spawn_id": 12,
+      "npc_id": 2001,
+      
+      "position": {
+        "x": -40.0,
+        "y": 30.0,
+        "z": 0.0
+      },
+      
+      "heading": 90.0,
+      
+      "respawn_seconds": 90,
+      "respawn_variance_seconds": 20,
+      
+      "spawn_group": "newbie_orc_camp"
+    },
+    {
+      "spawn_id": 13,
+      "npc_id": 2002,
+      
+      "position": {
+        "x": -60.0,
+        "y": 40.0,
+        "z": 0.0
+      },
+      
+      "heading": 135.0,
+      
+      "respawn_seconds": 100,
+      "respawn_variance_seconds": 25,
+      
+      "spawn_group": "newbie_orc_camp"
+    },
+    {
+      "spawn_id": 14,
+      "npc_id": 2003,
+      
+      "position": {
+        "x": -45.0,
+        "y": 45.0,
+        "z": 0.0
+      },
+      
+      "heading": 180.0,
+      
+      "respawn_seconds": 300,
+      "respawn_variance_seconds": 60,
+      
+      "spawn_group": "newbie_orc_camp"
+    }
+  ]
+}

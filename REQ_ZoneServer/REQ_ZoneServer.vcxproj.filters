@@ -48,12 +48,24 @@
     <ClCompile Include="src\ZoneServer_Death.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\ZoneServer_Groups.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\NpcSpawnData.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ZoneServer_EntityMessages.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\req\zone\ZoneInstance.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\req\zone\ZoneServer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\req\zone\NpcSpawnData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

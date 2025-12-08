@@ -354,4 +354,99 @@ void ZoneServer::devDamageSelf(std::uint64_t characterId, std::int32_t amount) {
     }
 }
 
+// ============================================================================
+// GM / Admin Commands for NPC Management
+// ============================================================================
+
+void ZoneServer::adminSpawnNpc(std::uint64_t gmCharacterId, std::int32_t npcId) {
+    auto gmIt = players_.find(gmCharacterId);
+    if (gmIt == players_.end()) {
+        req::shared::logWarn("zone", std::string{"[ADMIN] admin_spawn_npc failed - GM not found: characterId="} +
+            std::to_string(gmCharacterId));
+        return;
+    }
+
+    const ZonePlayer& gm = gmIt->second;
+
+    // Get NPC template
+    const NpcTemplateData* tmpl = npcDataRepository_.GetTemplate(npcId);
+    if (!tmpl) {
+        req::shared::logWarn("zone", std::string{"[ADMIN] admin_spawn_npc failed - unknown NPC template: npcId="} +
+            std::to_string(npcId));
+        return;
+    }
+
+    // Create runtime NPC instance at GM's current position
+    req::shared::data::ZoneNpc npc;
+
+    // Generate unique instance ID
+    npc.npcId = nextNpcInstanceId_++;
+
+    // Copy data from template
+    npc.name = tmpl->name;
+    npc.level = tmpl->level;
+    npc.templateId = tmpl->npcId;
+    npc.spawnId = -1;  // -1 indicates admin-spawned (not from spawn table)
+    npc.factionId = tmpl->factionId;
+
+    // Set stats from template
+    npc.maxHp = tmpl->hp;
+    npc.currentHp = npc.maxHp;
+    npc.isAlive = true;
+    npc.minDamage = tmpl->minDamage;
+    npc.maxDamage = tmpl->maxDamage;
+
+    // Position at GM's location
+    npc.posX = gm.posX;
+    npc.posY = gm.posY;
+    npc.posZ = gm.posZ;
+    npc.facingDegrees = gm.yawDegrees;
+
+    // Store spawn point (same as current position for admin spawns)
+    npc.spawnX = gm.posX;
+    npc.spawnY = gm.posY;
+    npc.spawnZ = gm.posZ;
+
+    // No automatic respawn for admin-spawned NPCs
+    npc.respawnTimeSec = 0.0f;
+    npc.respawnTimerSec = 0.0f;
+    npc.pendingRespawn = false;
+
+    // Behavior from template
+    npc.behaviorFlags.isSocial = tmpl->isSocial;
+    npc.behaviorFlags.canFlee = tmpl->canFlee;
+    npc.behaviorFlags.isRoamer = tmpl->isRoamer;
+    npc.behaviorFlags.leashToSpawn = true;
+
+    npc.behaviorParams.aggroRadius = tmpl->aggroRadius * 10.0f;
+    npc.behaviorParams.socialRadius = tmpl->assistRadius * 10.0f;
+    npc.behaviorParams.leashRadius = 2000.0f;
+    npc.behaviorParams.maxChaseDistance = 2500.0f;
+    npc.behaviorParams.preferredRange = 200.0f;
+    npc.behaviorParams.fleeHealthPercent = tmpl->canFlee ? 0.25f : 0.0f;
+
+    // AI state
+    npc.aiState = req::shared::data::NpcAiState::Idle;
+    npc.currentTargetId = 0;
+    npc.hateTable.clear();
+
+    // Attack timing
+    npc.meleeAttackCooldown = 1.5f;
+    npc.meleeAttackTimer = 0.0f;
+    npc.aggroScanTimer = 0.0f;
+    npc.leashTimer = 0.0f;
+
+    // Movement
+    npc.moveSpeed = 50.0f;
+
+    // Add to zone
+    npcs_[npc.npcId] = npc;
+
+    req::shared::logInfo("zone", std::string{"[ADMIN] Spawned NPC: instanceId="} +
+        std::to_string(npc.npcId) + ", templateId=" + std::to_string(npc.templateId) +
+        ", name=\"" + npc.name + "\", level=" + std::to_string(npc.level) +
+        ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," +
+        std::to_string(npc.posZ) + "), gmCharId=" + std::to_string(gmCharacterId));
+}
+
 } // namespace req::zone

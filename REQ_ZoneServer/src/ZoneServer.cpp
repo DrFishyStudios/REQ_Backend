@@ -105,7 +105,28 @@ void ZoneServer::run() {
         ", zoneName=\"" + zoneName_ + "\", address=" + address_ + 
         ", port=" + std::to_string(port_));
     
-    // Load NPCs for this zone
+    // Load NPC templates (global, shared across all zones)
+    req::shared::logInfo("zone", "=== Loading NPC Data ===");
+    if (!npcDataRepository_.LoadNpcTemplates("config/npc_templates.json")) {
+        req::shared::logWarn("zone", "Failed to load NPC templates - zone will have no NPCs");
+    } else {
+        req::shared::logInfo("zone", std::string{"Successfully loaded "} + 
+            std::to_string(npcDataRepository_.GetTemplateCount()) + " NPC template(s)");
+    }
+    
+    // Load spawn points for this zone
+    std::string spawnPath = "config/zones/npc_spawns_" + std::to_string(zoneId_) + ".json";
+    if (!npcDataRepository_.LoadZoneSpawns(spawnPath)) {
+        req::shared::logWarn("zone", "Failed to load zone spawns - zone will have no NPCs");
+    } else {
+        req::shared::logInfo("zone", std::string{"Successfully loaded "} + 
+            std::to_string(npcDataRepository_.GetSpawnCount()) + " spawn point(s)");
+    }
+    
+    // Instantiate NPCs from loaded spawn data
+    instantiateNpcsFromSpawnData();
+    
+    // Load NPCs for this zone (old system - deprecated)
     loadNpcsForZone();
     
     startAccept();
