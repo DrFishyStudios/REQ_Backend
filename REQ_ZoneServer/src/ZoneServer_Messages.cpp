@@ -531,6 +531,9 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
                 response.success = false;
                 response.message = "Invalid damage amount: " + devCmd.param1;
             }
+        } else if (devCmd.command == "respawnall") {
+            devRespawnAll(devCmd.characterId);
+            response.message = "Respawned all NPCs in zone";
         } else {
             response.success = false;
             response.message = "Unknown command: " + devCmd.command;

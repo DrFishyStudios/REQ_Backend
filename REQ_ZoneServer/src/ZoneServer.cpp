@@ -126,6 +126,9 @@ void ZoneServer::run() {
     // Instantiate NPCs from loaded spawn data
     instantiateNpcsFromSpawnData();
     
+    // Initialize spawn records for respawn management
+    initializeSpawnRecords();
+    
     // Load NPCs for this zone (old system - deprecated)
     loadNpcsForZone();
     

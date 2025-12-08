@@ -449,4 +449,43 @@ void ZoneServer::adminSpawnNpc(std::uint64_t gmCharacterId, std::int32_t npcId) 
         std::to_string(npc.posZ) + "), gmCharId=" + std::to_string(gmCharacterId));
 }
 
+// ============================================================================
+// GM / Dev Commands for Spawn Testing
+// ============================================================================
+
+void ZoneServer::devRespawnAll(std::uint64_t characterId) {
+    auto playerIt = players_.find(characterId);
+    if (playerIt == players_.end()) {
+        req::shared::logWarn("zone", std::string{"[DEV] respawnall failed - player not found: characterId="} +
+            std::to_string(characterId));
+        return;
+    }
+    
+    req::shared::logInfo("zone", std::string{"[DEV] respawnall command: characterId="} + std::to_string(characterId));
+    
+    auto now = std::chrono::system_clock::now();
+    double currentTime = std::chrono::duration<double>(now.time_since_epoch()).count();
+    
+    int respawnedCount = 0;
+    for (auto& [spawnId, record] : spawnRecords_) {
+        // Set spawn state to WaitingToSpawn with immediate timer
+        record.state = SpawnState::WaitingToSpawn;
+        record.next_spawn_time = currentTime;  // Spawn immediately on next tick
+        
+        // Remove current NPC if alive
+        if (record.current_entity_id != 0) {
+            auto npcIt = npcs_.find(record.current_entity_id);
+            if (npcIt != npcs_.end()) {
+                npcs_.erase(npcIt);
+            }
+            record.current_entity_id = 0;
+        }
+        
+        respawnedCount++;
+    }
+    
+    req::shared::logInfo("zone", std::string{"[DEV] respawnall: Set "} + std::to_string(respawnedCount) +
+        " spawn(s) to respawn immediately");
+}
+
 } // namespace req::zone

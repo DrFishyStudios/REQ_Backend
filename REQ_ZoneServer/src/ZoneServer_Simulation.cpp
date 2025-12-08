@@ -189,6 +189,11 @@ void ZoneServer::updateSimulation(float dt) {
         updateNpc(npc, dt);
     }
     
+    // Process spawn system (check for spawns ready to spawn)
+    auto now = std::chrono::system_clock::now();
+    double currentTime = std::chrono::duration<double>(now.time_since_epoch()).count();
+    processSpawns(dt, currentTime);
+    
     // Periodic NPC debug logging (every 5 seconds at 20Hz = 100 ticks)
     static std::uint64_t npcLogCounter = 0;
     if (!npcs_.empty() && ++npcLogCounter % 100 == 0) {

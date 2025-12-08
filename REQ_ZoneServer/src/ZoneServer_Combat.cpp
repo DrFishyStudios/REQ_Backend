@@ -131,6 +131,13 @@ void ZoneServer::processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc&
         if (targetDied) {
             // Award XP for kill
             awardXpForNpcKill(target, attacker);
+            
+            // Schedule respawn if NPC has a spawn point
+            if (target.spawnId > 0) {
+                auto now = std::chrono::system_clock::now();
+                double currentTime = std::chrono::duration<double>(now.time_since_epoch()).count();
+                scheduleRespawn(target.spawnId, currentTime);
+            }
         }
     }
     

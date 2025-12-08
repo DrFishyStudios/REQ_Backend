@@ -90,6 +90,43 @@ struct ZonePlayer {
 // Use shared ZoneConfig from Config.h (no duplicate definition needed)
 using ZoneConfig = req::shared::ZoneConfig;
 
+// ============================================================================
+// Spawn Manager State Tracking
+// ============================================================================
+
+/**
+ * SpawnState
+ * 
+ * Lifecycle state for each spawn point in the zone.
+ */
+enum class SpawnState {
+    WaitingToSpawn,  // Waiting for next_spawn_time to elapse
+    Alive            // NPC is currently spawned and active
+};
+
+/**
+ * SpawnRecord
+ * 
+ * Runtime state tracking for a single spawn point.
+ * Manages respawn timing and links spawn points to active NPC instances.
+ */
+struct SpawnRecord {
+    // Static data (from spawn point config)
+    std::int32_t spawn_point_id{ 0 };
+    std::int32_t npc_template_id{ 0 };
+    float posX{ 0.0f };
+    float posY{ 0.0f };
+    float posZ{ 0.0f };
+    float heading{ 0.0f };
+    float respawn_seconds{ 120.0f };
+    float respawn_jitter_seconds{ 0.0f };
+    
+    // Dynamic state
+    SpawnState state{ SpawnState::WaitingToSpawn };
+    double next_spawn_time{ 0.0 };           // Timestamp when NPC should spawn (seconds since epoch)
+    std::uint64_t current_entity_id{ 0 };    // NPC instance ID when Alive, 0 when WaitingToSpawn
+};
+
 class ZoneServer {
 public:
     ZoneServer(std::uint32_t worldId,
@@ -131,6 +168,12 @@ private:
     void updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds);
     void updateNpcAi(req::shared::data::ZoneNpc& npc, float deltaSeconds);
     
+    // Spawn Manager methods
+    void initializeSpawnRecords();
+    void processSpawns(float deltaSeconds, double currentTime);
+    void spawnNpcAtPoint(SpawnRecord& record, double currentTime);
+    void scheduleRespawn(std::int32_t spawnPointId, double currentTime);
+    
     // Hate/Aggro system (Phase 2.3)
     void addHate(req::shared::data::ZoneNpc& npc, std::uint64_t entityId, float amount);
     std::uint64_t getTopHateTarget(const req::shared::data::ZoneNpc& npc) const;
@@ -157,6 +200,9 @@ private:
     void adminSpawnCamp(std::uint64_t gmCharacterId, const std::string& spawnGroup);
     void adminDespawnCamp(std::uint64_t gmCharacterId, const std::string& spawnGroup);
     
+    // GM / Dev commands for spawn testing
+    void devRespawnAll(std::uint64_t characterId);
+
     // Group operations (Phase 3)
     req::shared::data::Group& createGroup(std::uint64_t leaderCharacterId);
     bool addMemberToGroup(std::uint64_t groupId, std::uint64_t characterId);
@@ -239,6 +285,10 @@ private:
     // NPCs in this zone
     std::unordered_map<std::uint64_t, req::shared::data::ZoneNpc> npcs_;
     std::uint64_t nextNpcInstanceId_{ 1 };  // Counter for unique NPC instance IDs
+    
+    // Spawn Manager state
+    std::unordered_map<std::int32_t, SpawnRecord> spawnRecords_;  // spawn_point_id -> SpawnRecord
+    bool enableSpawnDebugLogging_{ false };  // Toggle for verbose spawn logs
     
     // Corpses in this zone
     std::unordered_map<std::uint64_t, req::shared::data::Corpse> corpses_;

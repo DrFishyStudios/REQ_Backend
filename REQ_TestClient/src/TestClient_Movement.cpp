@@ -196,6 +196,7 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
         std::cout << "  setlevel <level> - Set character level\n";
         std::cout << "  damage_self <amount> - Apply damage to character\n";
         std::cout << "  respawn - Respawn at bind point\n";
+        std::cout << "  respawnall - Respawn all NPCs in zone immediately\n";
     }
     
     std::cout << "\n  [empty] - Stop moving\n";
@@ -377,6 +378,17 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
             }
             
             SendDevCommand(*zoneSocket, localCharacterId, "respawn");
+            continue;
+        }
+        
+        // NEW: Check for dev command: respawnall
+        if (command == "respawnall") {
+            if (!isAdmin_) {
+                std::cout << "[DEV] ERROR: Dev commands require an admin account\n";
+                continue;
+            }
+            
+            SendDevCommand(*zoneSocket, localCharacterId, "respawnall");
             continue;
         }
         
