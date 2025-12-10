@@ -221,6 +221,13 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
 
         req::shared::logInfo("zone", std::string{"[ZONEAUTH] COMPLETE: characterId="} + 
             std::to_string(characterId) + " successfully entered zone \"" + zoneName_ + "\"");
+        
+        // Send snapshot of all existing entities (players + NPCs) to newly joined player
+        sendAllKnownEntities(connection, characterId);
+        
+        // Broadcast this player's spawn to all other players
+        broadcastEntitySpawn(characterId);
+        
         break;
     }
     

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 
 #include <boost/asio.hpp>
 
@@ -12,6 +13,20 @@
 #include "ClientStages.h"
 
 namespace req::testclient {
+
+// Client-side NPC information for display and tracking
+struct NpcClientInfo {
+    std::uint64_t entityId{ 0 };
+    std::uint32_t templateId{ 0 };
+    std::string name;
+    std::uint32_t level{ 1 };
+    float posX{ 0.0f };
+    float posY{ 0.0f };
+    float posZ{ 0.0f };
+    float heading{ 0.0f };
+    std::int32_t hp{ 100 };
+    std::int32_t maxHp{ 100 };
+};
 
 class TestClient {
 public:
@@ -43,9 +58,12 @@ private:
     req::shared::HandoffToken handoffToken_;
     req::shared::ZoneId zoneId_;
     std::uint64_t selectedCharacterId_;
-    bool isAdmin_{ false };  // NEW: Track if logged-in account is admin
+    bool isAdmin_{ false };  // Track if logged-in account is admin
     
-    // NEW: Dev command helper
+    // NPC tracking
+    std::unordered_map<std::uint64_t, NpcClientInfo> knownNpcs_;
+    
+    // Dev command helper
     static void SendDevCommand(Tcp::socket& socket,
                                std::uint64_t characterId,
                                const std::string& command,

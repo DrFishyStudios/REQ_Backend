@@ -125,18 +125,41 @@ void ZoneServer::processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc&
         
         req::shared::logInfo("zone", std::string{"[COMBAT] NPC slain: npcId="} +
             std::to_string(target.npcId) + ", name=\"" + target.name + 
-            "\", killerCharId=" + std::to_string(attacker.characterId));
+            "\", killerCharId=" + std::to_string(attacker.characterId) +
+            ", spawnId=" + std::to_string(target.spawnId));
+        
+        // Broadcast EntityDespawn to all connected players (reason=1 for death)
+        broadcastEntityDespawn(target.npcId, 1);
         
         // Award XP for kill
-        if (targetDied) {
-            // Award XP for kill
-            awardXpForNpcKill(target, attacker);
+        awardXpForNpcKill(target, attacker);
+        
+        // CRITICAL FIX: Update spawn record state on death
+        if (target.spawnId > 0) {
+            auto now = std::chrono::system_clock::now();
+            double currentTime = std::chrono::duration<double>(now.time_since_epoch()).count();
             
-            // Schedule respawn if NPC has a spawn point
-            if (target.spawnId > 0) {
-                auto now = std::chrono::system_clock::now();
-                double currentTime = std::chrono::duration<double>(now.time_since_epoch()).count();
-                scheduleRespawn(target.spawnId, currentTime);
+            auto spawnIt = spawnRecords_.find(target.spawnId);
+            if (spawnIt != spawnRecords_.end()) {
+                SpawnRecord& spawnRecord = spawnIt->second;
+                
+                // Verify this is the correct NPC for this spawn point
+                if (spawnRecord.state == SpawnState::Alive && spawnRecord.current_entity_id == target.npcId) {
+                    // Schedule respawn
+                    scheduleRespawn(target.spawnId, currentTime);
+                } else {
+                    // State mismatch - log error
+                    req::shared::logError("zone", std::string{"[SPAWN] NPC death state mismatch: npcId="} +
+                        std::to_string(target.npcId) + ", spawnId=" + std::to_string(target.spawnId) +
+                        ", spawnState=" + (spawnRecord.state == SpawnState::Alive ? "Alive" : "WaitingToSpawn") +
+                        ", spawn.current_entity_id=" + std::to_string(spawnRecord.current_entity_id));
+                    
+                    // Force repair the spawn record
+                    scheduleRespawn(target.spawnId, currentTime);
+                }
+            } else {
+                req::shared::logWarn("zone", std::string{"[SPAWN] NPC died but spawn record not found: npcId="} +
+                    std::to_string(target.npcId) + ", spawnId=" + std::to_string(target.spawnId));
             }
         }
     }

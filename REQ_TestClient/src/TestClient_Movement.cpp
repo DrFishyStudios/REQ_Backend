@@ -187,8 +187,10 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
     std::cout << "  d - Strafe right\n";
     std::cout << "  j - Jump\n";
     std::cout << "  attack <npcId> - Attack an NPC\n";
+    std::cout << "  listnpcs - Show all known NPCs\n";
+    std::cout << "  findnpc <entityId> - Show details for specific NPC\n";
     
-    // NEW: Show admin commands only if logged in as admin
+    // Show admin commands only if logged in as admin
     if (isAdmin_) {
         std::cout << "\n--- Admin Commands ---\n";
         std::cout << "  suicide - Force character to 0 HP and trigger death\n";
@@ -205,6 +207,7 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
     
     std::uint32_t movementSequence = 0;
     bool running = true;
+    bool snapshotReceived = false;
     
     while (running) {
         // Check for any incoming messages from zone server
@@ -247,7 +250,6 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
             } else if (header.type == req::shared::MessageType::DevCommandResponse) {
                 req::shared::protocol::DevCommandResponseData response;
                 if (req::shared::protocol::parseDevCommandResponsePayload(msgBody, response)) {
-                    // NEW: Nicer formatted output
                     if (response.success) {
                         std::cout << "[DEV] OK: " << response.message << std::endl;
                     } else {
@@ -255,6 +257,103 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
                     }
                 } else {
                     req::shared::logError("TestClient", "Failed to parse DevCommandResponse");
+                }
+            } else if (header.type == req::shared::MessageType::EntitySpawn) {
+                req::shared::protocol::EntitySpawnData spawnData;
+                if (req::shared::protocol::parseEntitySpawnPayload(msgBody, spawnData)) {
+                    // Only track NPCs (entityType == 1)
+                    if (spawnData.entityType == 1) {
+                        // Add/update NPC in local map
+                        NpcClientInfo& npc = knownNpcs_[spawnData.entityId];
+                        npc.entityId = spawnData.entityId;
+                        npc.templateId = spawnData.templateId;
+                        npc.name = spawnData.name;
+                        npc.level = spawnData.level;
+                        npc.posX = spawnData.posX;
+                        npc.posY = spawnData.posY;
+                        npc.posZ = spawnData.posZ;
+                        npc.heading = spawnData.heading;
+                        npc.hp = spawnData.hp;
+                        npc.maxHp = spawnData.maxHp;
+                        
+                        // Print snapshot header on first NPC spawn (zone entry)
+                        if (!snapshotReceived) {
+                            std::cout << "\n--- NPC Snapshot (zone " << zoneId_ << ") ---\n";
+                            snapshotReceived = true;
+                        }
+                        
+                        // Check if this is initial snapshot or live spawn
+                        static int initialSpawnCount = 0;
+                        initialSpawnCount++;
+                        
+                        if (initialSpawnCount <= 10) {
+                            // Initial snapshot - compact format
+                            std::cout << "NPC [" << npc.entityId << "] \"" << npc.name 
+                                     << "\" (lvl " << npc.level << ", template " << npc.templateId 
+                                     << ") at (" << npc.posX << ", " << npc.posY << ", " << npc.posZ 
+                                     << ") [" << npc.hp << "/" << npc.maxHp << " HP]\n";
+                        } else {
+                            // Live spawn - event format
+                            std::cout << "\n[NpcSpawn] " << npc.entityId << " \"" << npc.name 
+                                     << "\" (lvl " << npc.level << ") at (" 
+                                     << npc.posX << ", " << npc.posY << ", " << npc.posZ << ")\n";
+                        }
+                        
+                        if (initialSpawnCount == 10) {
+                            std::cout << "--- End of Snapshot (" << knownNpcs_.size() << " NPCs) ---\n\n";
+                        }
+                    }
+                } else {
+                    req::shared::logError("TestClient", "Failed to parse EntitySpawn");
+                }
+            } else if (header.type == req::shared::MessageType::EntityDespawn) {
+                req::shared::protocol::EntityDespawnData despawnData;
+                if (req::shared::protocol::parseEntityDespawnPayload(msgBody, despawnData)) {
+                    std::string reasonStr;
+                    switch (despawnData.reason) {
+                        case 0: reasonStr = "Disconnect"; break;
+                        case 1: reasonStr = "Death"; break;
+                        case 2: reasonStr = "Despawn"; break;
+                        case 3: reasonStr = "OutOfRange"; break;
+                        default: reasonStr = "Unknown(" + std::to_string(despawnData.reason) + ")"; break;
+                    }
+                    
+                    // Remove from local map
+                    auto it = knownNpcs_.find(despawnData.entityId);
+                    if (it != knownNpcs_.end()) {
+                        std::cout << "\n[NpcDespawn] " << it->second.entityId << " \"" 
+                                 << it->second.name << "\" (" << reasonStr << ")\n";
+                        knownNpcs_.erase(it);
+                    } else {
+                        std::cout << "\n[NpcDespawn] " << despawnData.entityId 
+                                 << " (" << reasonStr << ")\n";
+                    }
+                } else {
+                    req::shared::logError("TestClient", "Failed to parse EntityDespawn");
+                }
+            } else if (header.type == req::shared::MessageType::EntityUpdate) {
+                req::shared::protocol::EntityUpdateData updateData;
+                if (req::shared::protocol::parseEntityUpdatePayload(msgBody, updateData)) {
+                    // Update local NPC data if we're tracking it
+                    auto it = knownNpcs_.find(updateData.entityId);
+                    if (it != knownNpcs_.end()) {
+                        it->second.posX = updateData.posX;
+                        it->second.posY = updateData.posY;
+                        it->second.posZ = updateData.posZ;
+                        it->second.heading = updateData.heading;
+                        it->second.hp = updateData.hp;
+                    }
+                    
+                    // Log entity updates at info level (can be verbose)
+                    req::shared::logInfo("TestClient", std::string{"[EntityUpdate] id="} +
+                        std::to_string(updateData.entityId) +
+                        ", pos=(" + std::to_string(updateData.posX) + "," +
+                        std::to_string(updateData.posY) + "," + std::to_string(updateData.posZ) + ")" +
+                        ", heading=" + std::to_string(updateData.heading) +
+                        ", hp=" + std::to_string(updateData.hp) +
+                        ", state=" + std::to_string(static_cast<int>(updateData.state)));
+                } else {
+                    req::shared::logError("TestClient", "Failed to parse EntityUpdate");
                 }
             } else {
                 req::shared::logInfo("TestClient", std::string{"Received unexpected message type: "} + 
@@ -276,6 +375,49 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
             req::shared::logInfo("TestClient", "User requested quit from movement test");
             running = false;
             break;
+        }
+        
+        // Check for listnpcs command
+        if (command == "listnpcs") {
+            std::cout << "\n--- Known NPCs (" << knownNpcs_.size() << " total) ---\n";
+            if (knownNpcs_.empty()) {
+                std::cout << "(No NPCs currently tracked)\n";
+            } else {
+                for (const auto& [entityId, npc] : knownNpcs_) {
+                    std::cout << "NPC [" << npc.entityId << "] \"" << npc.name 
+                             << "\" (lvl " << npc.level << ", template " << npc.templateId 
+                             << ") at (" << npc.posX << ", " << npc.posY << ", " << npc.posZ 
+                             << ") [" << npc.hp << "/" << npc.maxHp << " HP]\n";
+                }
+            }
+            std::cout << "--- End of List ---\n";
+            continue;
+        }
+        
+        // Check for findnpc command
+        if (command.find("findnpc ") == 0) {
+            std::string entityIdStr = command.substr(8); // Skip "findnpc "
+            try {
+                std::uint64_t entityId = std::stoull(entityIdStr);
+                auto it = knownNpcs_.find(entityId);
+                if (it != knownNpcs_.end()) {
+                    const NpcClientInfo& npc = it->second;
+                    std::cout << "\n--- NPC Details ---\n";
+                    std::cout << "  Entity ID:   " << npc.entityId << "\n";
+                    std::cout << "  Template ID: " << npc.templateId << "\n";
+                    std::cout << "  Name:        \"" << npc.name << "\"\n";
+                    std::cout << "  Level:       " << npc.level << "\n";
+                    std::cout << "  Position:    (" << npc.posX << ", " << npc.posY << ", " << npc.posZ << ")\n";
+                    std::cout << "  Heading:     " << npc.heading << " degrees\n";
+                    std::cout << "  HP:          " << npc.hp << " / " << npc.maxHp << "\n";
+                    std::cout << "--- End ---\n";
+                } else {
+                    std::cout << "NPC with entity ID " << entityId << " not found in local map.\n";
+                }
+            } catch (const std::exception& e) {
+                std::cout << "Invalid entity ID: '" << entityIdStr << "'. Usage: findnpc <entityId>\n";
+            }
+            continue;
         }
         
         // Check for attack command

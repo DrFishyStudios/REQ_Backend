@@ -103,6 +103,7 @@ struct EntitySpawnData {
     std::uint32_t level{ 1 };             // Entity level
     std::int32_t hp{ 100 };               // Current HP
     std::int32_t maxHp{ 100 };            // Maximum HP
+    std::string visualId;                  // Visual/model ID for client rendering (from NPC template)
 };
 
 /*
@@ -285,7 +286,7 @@ bool parsePlayerStateSnapshotPayload(
 /*
  * EntitySpawn (ZoneServer ? client)
  * 
- * Payload format: entityId|entityType|templateId|name|posX|posY|posZ|heading|level|hp|maxHp
+ * Payload format: entityId|entityType|templateId|name|posX|posY|posZ|heading|level|hp|maxHp|visualId
  * 
  * Fields:
  *   - entityId: decimal entity identifier (characterId for players, npcId for NPCs)
@@ -297,8 +298,9 @@ bool parsePlayerStateSnapshotPayload(
  *   - level: entity level (uint32)
  *   - hp: current HP (int32)
  *   - maxHp: maximum HP (int32)
+ *   - visualId: visual/model ID string for client rendering (from NPC template or character)
  * 
- * Example: "1001|1|5001|A Decaying Skeleton|100.0|50.0|0.0|90.0|1|20|20"
+ * Example: "1001|1|5001|A Decaying Skeleton|100.0|50.0|0.0|90.0|1|20|20|skeleton_01"
  * 
  * Note: Sent to player when entering zone (for all existing entities) and when new entities spawn.
  */

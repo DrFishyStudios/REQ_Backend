@@ -194,6 +194,32 @@ void ZoneServer::updateSimulation(float dt) {
     double currentTime = std::chrono::duration<double>(now.time_since_epoch()).count();
     processSpawns(dt, currentTime);
     
+    // DEFENSIVE: Periodic spawn integrity check (every 30 seconds = 600 ticks)
+    static std::uint64_t spawnIntegrityCounter = 0;
+    if (++spawnIntegrityCounter % 600 == 0 && !spawnRecords_.empty()) {
+        int repairCount = 0;
+        for (auto& [spawnId, record] : spawnRecords_) {
+            if (record.state == SpawnState::Alive && record.current_entity_id != 0) {
+                // Verify NPC actually exists
+                auto npcIt = npcs_.find(record.current_entity_id);
+                if (npcIt == npcs_.end()) {
+                    req::shared::logWarn("zone", std::string{"[SPAWN] Integrity check: NPC "} +
+                        std::to_string(record.current_entity_id) + " from spawn " +
+                        std::to_string(spawnId) + " does not exist - repairing spawn record");
+                    record.state = SpawnState::WaitingToSpawn;
+                    record.current_entity_id = 0;
+                    record.next_spawn_time = currentTime + record.respawn_seconds;
+                    repairCount++;
+                }
+            }
+        }
+        
+        if (repairCount > 0) {
+            req::shared::logWarn("zone", std::string{"[SPAWN] Integrity check repaired "} +
+                std::to_string(repairCount) + " spawn record(s)");
+        }
+    }
+    
     // Periodic NPC debug logging (every 5 seconds at 20Hz = 100 ticks)
     static std::uint64_t npcLogCounter = 0;
     if (!npcs_.empty() && ++npcLogCounter % 100 == 0) {

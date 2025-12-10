@@ -164,7 +164,6 @@ private:
     
     // NPC management
     void loadNpcsForZone();
-    void instantiateNpcsFromSpawnData();
     void updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds);
     void updateNpcAi(req::shared::data::ZoneNpc& npc, float deltaSeconds);
     

@@ -352,7 +352,8 @@ std::string buildEntitySpawnPayload(
         << data.heading << '|'
         << data.level << '|'
         << data.hp << '|'
-        << data.maxHp;
+        << data.maxHp << '|'
+        << data.visualId;
     return oss.str();
 }
 
@@ -360,8 +361,8 @@ bool parseEntitySpawnPayload(
     const std::string& payload,
     EntitySpawnData& outData) {
     auto tokens = split(payload, '|');
-    if (tokens.size() < 11) {
-        req::shared::logError("Protocol", std::string{"EntitySpawn: expected 11 fields, got "} + 
+    if (tokens.size() < 12) {
+        req::shared::logError("Protocol", std::string{"EntitySpawn: expected 12 fields, got "} + 
             std::to_string(tokens.size()));
         return false;
     }
@@ -426,6 +427,9 @@ bool parseEntitySpawnPayload(
         req::shared::logError("Protocol", "EntitySpawn: failed to parse maxHp");
         return false;
     }
+    
+    // Parse visualId (field 11)
+    outData.visualId = tokens[11];
     
     return true;
 }

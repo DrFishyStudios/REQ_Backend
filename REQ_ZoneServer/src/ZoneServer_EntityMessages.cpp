@@ -36,6 +36,7 @@ void ZoneServer::sendEntitySpawn(ConnectionPtr connection, std::uint64_t entityI
         spawnData.level = player.level;
         spawnData.hp = player.hp;
         spawnData.maxHp = player.maxHp;
+        spawnData.visualId = "0";  // TODO: Load visual ID from character/race
         
         std::string payload = req::shared::protocol::buildEntitySpawnPayload(spawnData);
         req::shared::net::Connection::ByteArray payloadBytes(payload.begin(), payload.end());
@@ -51,6 +52,10 @@ void ZoneServer::sendEntitySpawn(ConnectionPtr connection, std::uint64_t entityI
     if (npcIt != npcs_.end()) {
         const auto& npc = npcIt->second;
         
+        // Get NPC template to retrieve visualId
+        const NpcTemplateData* tmpl = npcDataRepository_.GetTemplate(npc.templateId);
+        std::string visualId = tmpl ? tmpl->visualId : "0";
+        
         // Build EntitySpawn message for NPC
         req::shared::protocol::EntitySpawnData spawnData;
         spawnData.entityId = npc.npcId;
@@ -64,6 +69,7 @@ void ZoneServer::sendEntitySpawn(ConnectionPtr connection, std::uint64_t entityI
         spawnData.level = npc.level;
         spawnData.hp = npc.currentHp;
         spawnData.maxHp = npc.maxHp;
+        spawnData.visualId = visualId;
         
         std::string payload = req::shared::protocol::buildEntitySpawnPayload(spawnData);
         req::shared::net::Connection::ByteArray payloadBytes(payload.begin(), payload.end());

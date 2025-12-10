@@ -123,10 +123,8 @@ void ZoneServer::run() {
             std::to_string(npcDataRepository_.GetSpawnCount()) + " spawn point(s)");
     }
     
-    // Instantiate NPCs from loaded spawn data
-    instantiateNpcsFromSpawnData();
-    
-    // Initialize spawn records for respawn management
+    // Initialize spawn records (spawn manager is the single source of truth
+    // for NPC creation and respawn)
     initializeSpawnRecords();
     
     // Load NPCs for this zone (old system - deprecated)
