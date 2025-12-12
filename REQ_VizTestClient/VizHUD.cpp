@@ -1,4 +1,5 @@
 #include "VizHUD.h"
+#include "VizUiScale.h"
 #include <sstream>
 #include <iomanip>
 
@@ -16,16 +17,20 @@ void VizHUD_Draw(
         return; // HUD disabled or font not loaded
     }
     
-    const float windowWidth = static_cast<float>(window.getSize().x);
-    const float fontSize = 14.0f;
-    const float lineHeight = fontSize + 4.0f;
-    const float padding = 10.0f;
+    const auto windowSize = window.getSize();
+    const float windowWidth = static_cast<float>(windowSize.x);
+    const float windowHeight = static_cast<float>(windowSize.y);
+    
+    // Unified UI scaling - consistent with console
+    const unsigned int fontSize = VizUi::GetUiFontPx(windowHeight, 24u, 48u);
+    const float lineHeight = static_cast<float>(fontSize) + 6.0f;
+    const float padding = 16.0f;
     
     // Helper to create text
     auto createText = [&](const std::string& str, float x, float y, sf::Color color = sf::Color::White) {
         sf::Text text(*font);
         text.setString(str);
-        text.setCharacterSize(static_cast<unsigned int>(fontSize));
+        text.setCharacterSize(fontSize);
         text.setFillColor(color);
         text.setPosition({ x, y });
         return text;

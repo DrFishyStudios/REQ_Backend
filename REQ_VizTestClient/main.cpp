@@ -15,6 +15,14 @@
 #include "VizHUD.h"
 
 // ============================================================================
+// Window Configuration Constants
+// ============================================================================
+namespace {
+    constexpr unsigned int DEFAULT_WINDOW_WIDTH = 1920u;
+    constexpr unsigned int DEFAULT_WINDOW_HEIGHT = 1080u;
+}
+
+// ============================================================================
 // DrawGrid - Helper for visual reference
 // ============================================================================
 void DrawGrid(sf::RenderWindow& window,
@@ -255,7 +263,7 @@ int main()
     // 4) SFML window + coordinate transform
     // ---------------------------------------------------------------------
     sf::RenderWindow window(
-        sf::VideoMode({ 1280, 720u }),
+        sf::VideoMode({ DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT }),
         "REQ VizTestClient",
         sf::Style::Titlebar | sf::Style::Close
     );
@@ -295,6 +303,14 @@ int main()
         // --- SFML events ---
         while (const std::optional<sf::Event> event = window.pollEvent())
         {
+            // Handle window resize
+            if (const auto* resized = event->getIf<sf::Event::Resized>()) {
+                window.setView(sf::View(sf::FloatRect(
+                    {0.f, 0.f},
+                    {static_cast<float>(resized->size.x), static_cast<float>(resized->size.y)}
+                )));
+            }
+            
             // Console gets first chance to handle events
             if (VizConsole_HandleEvent(console, event.value())) {
                 // Check if Enter was pressed while console open
@@ -330,6 +346,13 @@ int main()
                 {
                     hudEnabled = !hudEnabled;
                     std::cout << "[HUD] " << (hudEnabled ? "Enabled" : "Disabled") << "\n";
+                }
+                
+                // F4 key - Toggle Combat Log
+                if (keyPressed->code == sf::Keyboard::Key::F4)
+                {
+                    combat.combatLogEnabled = !combat.combatLogEnabled;
+                    std::cout << "[Combat Log] " << (combat.combatLogEnabled ? "Enabled" : "Disabled") << "\n";
                 }
                 
                 // Tab key - Cycle targets
@@ -506,14 +529,15 @@ int main()
             }
         }
 
-        // Camera-relative world-to-screen transform
-        const float windowWidth = 1280.f;
-        const float windowHeight = 720.f;
+        // Camera-relative world-to-screen transform (dynamic based on current window size)
+        const auto ws = window.getSize();
+        const float windowWidth = static_cast<float>(ws.x);
+        const float windowHeight = static_cast<float>(ws.y);
         const float pixelsPerWorldUnit = baseScale;
 
         auto worldToScreen = [&](float wx, float wy) -> sf::Vector2f {
-            const float screenX = (windowWidth / 2.f) + (wx - cameraWorld.x) * pixelsPerWorldUnit;
-            const float screenY = (windowHeight / 2.f) - (wy - cameraWorld.y) * pixelsPerWorldUnit;
+            const float screenX = (windowWidth * 0.5f) + (wx - cameraWorld.x) * pixelsPerWorldUnit;
+            const float screenY = (windowHeight * 0.5f) - (wy - cameraWorld.y) * pixelsPerWorldUnit;
             return sf::Vector2f{ screenX, screenY };
         };
         
@@ -521,7 +545,7 @@ int main()
         if (pendingMouseClick) {
             VizCombat_HandleMouseClickSelect(
                 combat, worldState, pendingMousePos, 
-                cameraWorld, pixelsPerWorldUnit);
+                cameraWorld, pixelsPerWorldUnit, windowWidth, windowHeight);
             pendingMouseClick = false;
         }
 
@@ -544,7 +568,7 @@ int main()
         DrawGrid(window, window.getSize(), cameraWorld, pixelsPerWorldUnit);
         
         // Draw target indicator (after grid, before trail)
-        VizCombat_DrawTargetIndicator(window, combat, worldState, cameraWorld, pixelsPerWorldUnit);
+        VizCombat_DrawTargetIndicator(window, combat, worldState, cameraWorld, pixelsPerWorldUnit, windowWidth, windowHeight);
         
         // Draw hover tooltip (before trail, after target indicator)
         sf::Vector2i mousePixelPos = sf::Mouse::getPosition(window);
@@ -553,7 +577,7 @@ int main()
             static_cast<float>(mousePixelPos.y) 
         };
         VizCombat_DrawHoverTooltip(window, worldState, mousePos, cameraWorld, pixelsPerWorldUnit, 
-                                    fontLoaded ? &consoleFont : nullptr);
+                                    windowWidth, windowHeight, fontLoaded ? &consoleFont : nullptr);
 
         // Draw player trail
         if (playerTrail.size() > 1)
@@ -627,6 +651,10 @@ int main()
         
         // Draw HUD
         VizHUD_Draw(window, hudData, fontLoaded ? &consoleFont : nullptr, hudEnabled);
+        
+        // Draw combat log (before console so console can overlap if needed)
+        VizCombat_DrawCombatLog(window, combat, fontLoaded ? &consoleFont : nullptr, 
+                                windowWidth, windowHeight, console.isOpen, 400.0f);
         
         // Draw console (last, on top of everything)
         VizConsole_Draw(window, console, consoleFont);

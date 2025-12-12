@@ -219,6 +219,7 @@
     <ClInclude Include="VizCombat.h" />
     <ClInclude Include="VizConsole.h" />
     <ClInclude Include="VizHUD.h" />
+    <ClInclude Include="VizUiScale.h" />
     <ClInclude Include="VizWorldState.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

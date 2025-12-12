@@ -1,4 +1,5 @@
 #include "VizCombat.h"
+#include "VizUiScale.h"
 
 #include <iostream>
 #include <cmath>
@@ -12,17 +13,17 @@
 // ============================================================================
 
 namespace {
-    sf::Vector2f WorldToScreen(
-        float wx, float wy,
-        sf::Vector2f cameraWorld,
-        float pixelsPerWorldUnit,
-        float windowWidth = 1280.0f,
-        float windowHeight = 720.0f)
-    {
-        const float screenX = (windowWidth / 2.0f) + (wx - cameraWorld.x) * pixelsPerWorldUnit;
-        const float screenY = (windowHeight / 2.0f) - (wy - cameraWorld.y) * pixelsPerWorldUnit;
-        return sf::Vector2f{ screenX, screenY };
-    }
+sf::Vector2f WorldToScreen(
+    float wx, float wy,
+    sf::Vector2f cameraWorld,
+    float pixelsPerWorldUnit,
+    float windowWidth,
+    float windowHeight)
+{
+    const float screenX = (windowWidth * 0.5f) + (wx - cameraWorld.x) * pixelsPerWorldUnit;
+    const float screenY = (windowHeight * 0.5f) - (wy - cameraWorld.y) * pixelsPerWorldUnit;
+    return sf::Vector2f{ screenX, screenY };
+}
     
     float DistanceSquared(sf::Vector2f a, sf::Vector2f b) {
         float dx = a.x - b.x;
@@ -41,6 +42,8 @@ void VizCombat_HandleMouseClickSelect(
     sf::Vector2f mouseScreenPos,
     sf::Vector2f cameraWorld,
     float pixelsPerWorldUnit,
+    float windowWidth,
+    float windowHeight,
     float selectRadiusPx)
 {
     const auto& entities = worldState.getEntities();
@@ -58,7 +61,7 @@ void VizCombat_HandleMouseClickSelect(
         // Transform entity to screen space
         sf::Vector2f entityScreen = WorldToScreen(
             entity.posX, entity.posY,
-            cameraWorld, pixelsPerWorldUnit);
+            cameraWorld, pixelsPerWorldUnit, windowWidth, windowHeight);
         
         // Check distance to mouse
         float distSq = DistanceSquared(mouseScreenPos, entityScreen);
@@ -187,7 +190,9 @@ void VizCombat_DrawTargetIndicator(
     const VizCombatState& combat,
     const VizWorldState& worldState,
     sf::Vector2f cameraWorld,
-    float pixelsPerWorldUnit)
+    float pixelsPerWorldUnit,
+    float windowWidth,
+    float windowHeight)
 {
     // Check if target selected
     if (combat.selectedTargetId == 0) {
@@ -206,7 +211,7 @@ void VizCombat_DrawTargetIndicator(
     // Transform to screen space
     sf::Vector2f screenPos = WorldToScreen(
         target.posX, target.posY,
-        cameraWorld, pixelsPerWorldUnit);
+        cameraWorld, pixelsPerWorldUnit, windowWidth, windowHeight);
     
     // Draw yellow ring around target
     const float ringRadius = target.isNpc ? 10.0f : 12.0f;
@@ -393,6 +398,8 @@ void VizCombat_DrawHoverTooltip(
     sf::Vector2f mouseScreenPos,
     sf::Vector2f cameraWorld,
     float pixelsPerWorldUnit,
+    float windowWidth,
+    float windowHeight,
     const sf::Font* font,
     float hoverRadiusPx)
 {
@@ -416,7 +423,7 @@ void VizCombat_DrawHoverTooltip(
         // Transform entity to screen space
         sf::Vector2f entityScreen = WorldToScreen(
             entity.posX, entity.posY,
-            cameraWorld, pixelsPerWorldUnit);
+            cameraWorld, pixelsPerWorldUnit, windowWidth, windowHeight);
         
         // Check distance to mouse
         float distSq = DistanceSquared(mouseScreenPos, entityScreen);
@@ -468,5 +475,109 @@ void VizCombat_DrawHoverTooltip(
         
         window.draw(background);
         window.draw(tooltipText);
+    }
+}
+
+// ============================================================================
+// VizCombat_DrawCombatLog
+// ============================================================================
+
+void VizCombat_DrawCombatLog(
+    sf::RenderWindow& window,
+    const VizCombatState& combat,
+    const sf::Font* font,
+    float windowWidth,
+    float windowHeight,
+    bool consoleOpen,
+    float consoleHeight) {
+    
+    // Early exit if disabled or no font
+    if (!combat.combatLogEnabled || !font) {
+        return;
+    }
+    
+    // Early exit if log is empty
+    if (combat.combatLog.empty()) {
+        return;
+    }
+    
+    // Use unified UI scaling for consistent text size
+    const unsigned int fontSize = VizUi::GetUiFontPx(windowHeight, 20u, 32u);
+    const float lineHeight = static_cast<float>(fontSize) + 4.0f;
+    const float padding = 12.0f;
+    
+    // Display only the most recent N lines (even if buffer stores more)
+    constexpr std::size_t MAX_DISPLAY_LINES = 7;
+    
+    // Determine how many lines to show
+    const std::size_t displayCount = std::min(MAX_DISPLAY_LINES, combat.combatLog.size());
+    const std::size_t startIdx = combat.combatLog.size() - displayCount;
+    
+    // Calculate log dimensions
+    const float logHeight = displayCount * lineHeight + padding * 2.0f;
+    const float maxLogWidth = 500.0f; // Maximum width for log panel
+    
+    // Position: bottom-right by default, shift up if console is open
+    float logX = windowWidth - maxLogWidth - padding;
+    float logY = windowHeight - logHeight - padding;
+    
+    // If console is open, shift log upward to avoid overlap
+    if (consoleOpen) {
+        logY = windowHeight - consoleHeight - logHeight - padding * 2.0f;
+        
+        // If that pushes us off the top, clamp to top of screen
+        if (logY < padding) {
+            logY = padding;
+        }
+    }
+    
+    // Measure actual text width to size background appropriately
+    float actualMaxWidth = 200.0f; // Minimum width
+    for (std::size_t i = startIdx; i < combat.combatLog.size(); ++i) {
+        sf::Text measureText(*font);
+        measureText.setString(combat.combatLog[i]);
+        measureText.setCharacterSize(fontSize);
+        float textWidth = measureText.getLocalBounds().size.x;
+        actualMaxWidth = std::max(actualMaxWidth, textWidth);
+    }
+    
+    // Clamp width to maximum
+    actualMaxWidth = std::min(actualMaxWidth, maxLogWidth - padding * 2.0f);
+    
+    // Draw semi-transparent background
+    sf::RectangleShape background({ actualMaxWidth + padding * 2.0f, logHeight });
+    background.setPosition({ logX, logY });
+    background.setFillColor(sf::Color(0, 0, 0, 180));
+    window.draw(background);
+    
+    // Draw border
+    sf::RectangleShape border({ actualMaxWidth + padding * 2.0f, logHeight });
+    border.setPosition({ logX, logY });
+    border.setFillColor(sf::Color::Transparent);
+    border.setOutlineColor(sf::Color(100, 100, 100, 255));
+    border.setOutlineThickness(1.0f);
+    window.draw(border);
+    
+    // Draw log lines
+    float textY = logY + padding;
+    for (std::size_t i = startIdx; i < combat.combatLog.size(); ++i) {
+        sf::Text text(*font);
+        text.setString(combat.combatLog[i]);
+        text.setCharacterSize(fontSize);
+        
+        // Color-code based on content
+        if (combat.combatLog[i].find("[HIT]") != std::string::npos) {
+            text.setFillColor(sf::Color(255, 200, 100)); // Orange for hits
+        } else if (combat.combatLog[i].find("[MISS]") != std::string::npos) {
+            text.setFillColor(sf::Color(150, 150, 150)); // Gray for misses
+        } else if (combat.combatLog[i].find("[CRIT]") != std::string::npos) {
+            text.setFillColor(sf::Color(255, 100, 100)); // Red for crits
+        } else {
+            text.setFillColor(sf::Color(220, 220, 220)); // Light gray default
+        }
+        
+        text.setPosition({ logX + padding, textY });
+        window.draw(text);
+        textY += lineHeight;
     }
 }

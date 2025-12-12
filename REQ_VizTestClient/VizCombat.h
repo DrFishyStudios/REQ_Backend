@@ -24,6 +24,9 @@ struct VizCombatState {
     std::deque<std::string> combatLog;
     static constexpr std::size_t MAX_LOG_LINES = 20;
     
+    // Combat log display toggle (F4 key)
+    bool combatLogEnabled{ true };
+    
     // Stats
     std::uint32_t attacksSent{ 0 };
     std::uint32_t attacksReceived{ 0 };
@@ -44,6 +47,8 @@ struct VizCombatState {
  * @param mouseScreenPos Mouse position in screen space
  * @param cameraWorld Camera position in world space
  * @param pixelsPerWorldUnit Scale factor
+ * @param windowWidth Current window width in pixels
+ * @param windowHeight Current window height in pixels
  * @param selectRadiusPx Selection radius in pixels (default 12.0f)
  */
 void VizCombat_HandleMouseClickSelect(
@@ -52,6 +57,8 @@ void VizCombat_HandleMouseClickSelect(
     sf::Vector2f mouseScreenPos,
     sf::Vector2f cameraWorld,
     float pixelsPerWorldUnit,
+    float windowWidth,
+    float windowHeight,
     float selectRadiusPx = 12.0f);
 
 /**
@@ -93,13 +100,17 @@ bool VizCombat_HandleAttackResult(
  * @param worldState World state
  * @param cameraWorld Camera position
  * @param pixelsPerWorldUnit Scale factor
+ * @param windowWidth Current window width in pixels
+ * @param windowHeight Current window height in pixels
  */
 void VizCombat_DrawTargetIndicator(
     sf::RenderWindow& window,
     const VizCombatState& combat,
     const VizWorldState& worldState,
     sf::Vector2f cameraWorld,
-    float pixelsPerWorldUnit);
+    float pixelsPerWorldUnit,
+    float windowWidth,
+    float windowHeight);
 
 /**
  * VizCombat_ClearTargetIfDespawned
@@ -141,6 +152,8 @@ void VizCombat_CycleTarget(
  * @param mouseScreenPos Mouse position in screen space
  * @param cameraWorld Camera position in world space
  * @param pixelsPerWorldUnit Scale factor
+ * @param windowWidth Current window width in pixels
+ * @param windowHeight Current window height in pixels
  * @param font Font for tooltip text (may be null)
  * @param hoverRadiusPx Hover detection radius in pixels (default 12.0f)
  */
@@ -150,5 +163,31 @@ void VizCombat_DrawHoverTooltip(
     sf::Vector2f mouseScreenPos,
     sf::Vector2f cameraWorld,
     float pixelsPerWorldUnit,
+    float windowWidth,
+    float windowHeight,
     const sf::Font* font,
     float hoverRadiusPx = 12.0f);
+
+/**
+ * VizCombat_DrawCombatLog
+ * 
+ * Draws recent combat log messages on screen.
+ * Displays last N lines from combat log with semi-transparent background.
+ * Position adjusts to avoid overlapping console when open.
+ * 
+ * @param window SFML window
+ * @param combat Combat state (contains combat log)
+ * @param font Font for text rendering (may be null)
+ * @param windowWidth Current window width in pixels
+ * @param windowHeight Current window height in pixels
+ * @param consoleOpen true if console is currently open
+ * @param consoleHeight Height of console in pixels (if open)
+ */
+void VizCombat_DrawCombatLog(
+    sf::RenderWindow& window,
+    const VizCombatState& combat,
+    const sf::Font* font,
+    float windowWidth,
+    float windowHeight,
+    bool consoleOpen = false,
+    float consoleHeight = 400.0f);
