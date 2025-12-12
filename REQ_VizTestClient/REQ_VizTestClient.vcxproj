@@ -209,9 +209,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="main_fixed.cpp" />
+    <ClCompile Include="VizCombat.cpp" />
+    <ClCompile Include="VizConsole.cpp" />
+    <ClCompile Include="VizHUD.cpp" />
     <ClCompile Include="VizWorldState.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="VizCombat.h" />
+    <ClInclude Include="VizConsole.h" />
+    <ClInclude Include="VizHUD.h" />
     <ClInclude Include="VizWorldState.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
