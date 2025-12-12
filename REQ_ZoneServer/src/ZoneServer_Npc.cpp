@@ -13,19 +13,131 @@
 using req::zone::NpcTemplateData;
 using req::zone::NpcSpawnPointData;
 
+namespace {
+    constexpr float MAX_HATE = 1.0e9f; // 1 billion - prevents unbounded growth
+}
+
 namespace req::zone {
+
+// ============================================================================
+// NPC Spawn Instantiation (Phase 2 - New Spawn System)
+// ============================================================================
+
+void ZoneServer::instantiateNpcsFromSpawnData() {
+    req::shared::logInfo("zone", "[SPAWN] === Instantiating NPCs from spawn data ===");
+
+    const auto& spawns = npcDataRepository_.GetZoneSpawns();
+    if (spawns.empty()) {
+        req::shared::logInfo("zone", "[SPAWN] No spawn points defined for this zone");
+        return;
+    }
+
+    int spawnedCount = 0;
+    int skippedCount = 0;
+
+    for (const auto& spawn : spawns) {
+        // Get NPC template
+        const NpcTemplateData* tmpl = npcDataRepository_.GetTemplate(spawn.npcId);
+        if (!tmpl) {
+            req::shared::logWarn("zone", std::string{"[SPAWN] Spawn point "} +
+                std::to_string(spawn.spawnId) + " references unknown NPC template: " +
+                std::to_string(spawn.npcId) + ", skipping");
+            skippedCount++;
+            continue;
+        }
+
+        // Create runtime NPC instance from template
+        req::shared::data::ZoneNpc npc;
+
+        // Generate unique instance ID
+        npc.npcId = nextNpcInstanceId_++;
+
+        // Copy data from template
+        npc.name = tmpl->name;
+        npc.level = tmpl->level;
+        npc.templateId = tmpl->npcId;
+        npc.spawnId = spawn.spawnId;
+        npc.factionId = tmpl->factionId;
+
+        // Set stats from template
+        npc.maxHp = tmpl->hp;
+        npc.currentHp = npc.maxHp;
+        npc.isAlive = true;
+        npc.minDamage = tmpl->minDamage;
+        npc.maxDamage = tmpl->maxDamage;
+
+        // Position from spawn point
+        npc.posX = spawn.posX;
+        npc.posY = spawn.posY;
+        npc.posZ = spawn.posZ;
+        npc.facingDegrees = spawn.heading;
+
+        // Store spawn point for respawn/leashing
+        npc.spawnX = spawn.posX;
+        npc.spawnY = spawn.posY;
+        npc.spawnZ = spawn.posZ;
+
+        // Respawn timing from spawn point
+        npc.respawnTimeSec = static_cast<float>(spawn.respawnSeconds);
+        npc.respawnTimerSec = 0.0f;
+        npc.pendingRespawn = false;
+
+        // Behavior from template
+        npc.behaviorFlags.isSocial = tmpl->isSocial;
+        npc.behaviorFlags.canFlee = tmpl->canFlee;
+        npc.behaviorFlags.isRoamer = tmpl->isRoamer;
+        npc.behaviorFlags.leashToSpawn = true;
+
+        npc.behaviorParams.aggroRadius = tmpl->aggroRadius;
+        npc.behaviorParams.socialRadius = tmpl->assistRadius;
+        npc.behaviorParams.leashRadius = 2000.0f;  // Default leash radius
+        npc.behaviorParams.maxChaseDistance = 2500.0f;  // Default max chase
+        npc.behaviorParams.preferredRange = 200.0f;  // Melee range
+        npc.behaviorParams.fleeHealthPercent = tmpl->canFlee ? 0.25f : 0.0f;
+
+        // AI state
+        npc.aiState = req::shared::data::NpcAiState::Idle;
+        npc.currentTargetId = 0;
+        npc.hateTable.clear();
+
+        // Attack timing
+        npc.meleeAttackCooldown = 1.5f;  // Default attack speed
+        npc.meleeAttackTimer = 0.0f;
+        npc.aggroScanTimer = 0.0f;
+        npc.leashTimer = 0.0f;
+
+        // Movement
+        npc.moveSpeed = 50.0f;  // Default movement speed
+
+        // Add to zone
+        npcs_[npc.npcId] = npc;
+        spawnedCount++;
+
+        req::shared::logInfo("zone", std::string{"[SPAWN] Spawned NPC: instanceId="} +
+            std::to_string(npc.npcId) + ", templateId=" + std::to_string(npc.templateId) +
+            ", name=\"" + npc.name + "\", level=" + std::to_string(npc.level) +
+            ", spawnId=" + std::to_string(spawn.spawnId) +
+            ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," +
+            std::to_string(npc.posZ) + ")");
+    }
+
+    req::shared::logInfo("zone", std::string{"[SPAWN] Instantiated "} + std::to_string(spawnedCount) +
+        " NPC(s) from " + std::to_string(spawns.size()) + " spawn point(s)" +
+        (skippedCount > 0 ? " (" + std::to_string(skippedCount) + " skipped)" : ""));
+}
 
 // ============================================================================
 // Hate/Aggro System (Phase 2.3)
 // ============================================================================
 
 void ZoneServer::addHate(req::shared::data::ZoneNpc& npc, std::uint64_t entityId, float amount) {
-    if (entityId == 0 || amount <= 0.0f) {
-        return;
-    }
+if (entityId == 0 || amount <= 0.0f) {
+    return;
+}
 
-    // Add or increment hate for this entity
-    npc.hateTable[entityId] += amount;
+// Add or increment hate for this entity with cap
+auto& value = npc.hateTable[entityId];
+value = std::min(value + amount, MAX_HATE);
 
     // Update current target if needed
     std::uint64_t previousTarget = npc.currentTargetId;
@@ -68,6 +180,48 @@ void ZoneServer::clearHate(req::shared::data::ZoneNpc& npc) {
         std::to_string(npc.npcId) + " \"" + npc.name + "\"");
 }
 
+void ZoneServer::removeCharacterFromAllHateTables(std::uint64_t characterId) {
+    int numNpcsTouched = 0;
+    int numTablesCleared = 0;
+
+    for (auto& [npcId, npc] : npcs_) {
+        // Check if this NPC has hate for the character
+        auto hateIt = npc.hateTable.find(characterId);
+        if (hateIt == npc.hateTable.end()) {
+            continue; // NPC doesn't have hate for this character
+        }
+
+        // Remove hate entry
+        npc.hateTable.erase(hateIt);
+        numNpcsTouched++;
+
+        // Check if hate table is now empty
+        if (npc.hateTable.empty()) {
+            numTablesCleared++;
+        }
+
+        // If this was the current target, recompute target
+        if (npc.currentTargetId == characterId) {
+            std::uint64_t newTarget = getTopHateTarget(npc);
+            npc.currentTargetId = newTarget;
+
+            // If no new target and NPC is engaged, transition to leashing
+            if (newTarget == 0 && npc.aiState == req::shared::data::NpcAiState::Engaged) {
+                npc.aiState = req::shared::data::NpcAiState::Leashing;
+
+                req::shared::logInfo("zone", std::string{"[HATE] NPC "} + std::to_string(npc.npcId) +
+                    " \"" + npc.name + "\" lost target (character removed), transitioning to Leashing");
+            }
+        }
+    }
+
+    if (numNpcsTouched > 0) {
+        req::shared::logInfo("zone", std::string{"[HATE] Removed characterId="} +
+            std::to_string(characterId) + " from " + std::to_string(numNpcsTouched) +
+            " NPC hate table(s) (" + std::to_string(numTablesCleared) + " cleared)");
+    }
+}
+
 // ============================================================================
 // NPC AI State Machine (Phase 2.3)
 // ============================================================================
@@ -101,7 +255,7 @@ void ZoneServer::updateNpcAi(req::shared::data::ZoneNpc& npc, float dt) {
                 npc.aggroScanTimer = 0.5f + (static_cast<float>(rand()) / RAND_MAX) * 0.5f;  // 0.5-1.0s
 
                 // Scan for players within aggro radius
-                const float aggroRadiusUnits = npc.behaviorParams.aggroRadius / 10.0f;  // Convert from GDD units
+                const float aggroRadiusUnits = npc.behaviorParams.aggroRadius;
 
                 for (const auto& [characterId, player] : players_) {
                     if (!player.isInitialized || player.isDead) {
@@ -164,7 +318,7 @@ void ZoneServer::updateNpcAi(req::shared::data::ZoneNpc& npc, float dt) {
 
             // Social aggro: alert nearby NPCs
             if (npc.behaviorFlags.isSocial) {
-                const float socialRadiusUnits = npc.behaviorParams.socialRadius / 10.0f;
+                const float socialRadiusUnits = npc.behaviorParams.socialRadius;
 
                 for (auto& [otherId, otherNpc] : npcs_) {
                     if (otherId == npc.npcId || !otherNpc.isAlive) {
@@ -236,8 +390,8 @@ void ZoneServer::updateNpcAi(req::shared::data::ZoneNpc& npc, float dt) {
             float dzSpawn = npc.posZ - npc.spawnZ;
             float distFromSpawn = std::sqrt(dxSpawn * dxSpawn + dySpawn * dySpawn + dzSpawn * dzSpawn);
 
-            const float leashRadiusUnits = npc.behaviorParams.leashRadius / 10.0f;
-            const float maxChaseUnits = npc.behaviorParams.maxChaseDistance / 10.0f;
+            const float leashRadiusUnits = npc.behaviorParams.leashRadius;
+            const float maxChaseUnits = npc.behaviorParams.maxChaseDistance;
 
             if (npc.behaviorFlags.leashToSpawn && (distFromSpawn > leashRadiusUnits || distance > maxChaseUnits)) {
                 clearHate(npc);
@@ -264,7 +418,7 @@ void ZoneServer::updateNpcAi(req::shared::data::ZoneNpc& npc, float dt) {
             }
 
             // Move toward target and attack
-            const float meleeRange = npc.behaviorParams.preferredRange / 10.0f;
+            const float meleeRange = npc.behaviorParams.preferredRange;
 
             if (distance > meleeRange) {
                 // Move toward target
@@ -372,7 +526,7 @@ void ZoneServer::updateNpcAi(req::shared::data::ZoneNpc& npc, float dt) {
             float dySpawn = npc.posY - npc.spawnY;
             float distFromSpawn = std::sqrt(dxSpawn * dxSpawn + dySpawn * dySpawn);
 
-            const float leashRadiusUnits = npc.behaviorParams.leashRadius / 10.0f;
+            const float leashRadiusUnits = npc.behaviorParams.leashRadius;
             if (distFromSpawn > leashRadiusUnits * 0.8f) {  // 80% of leash radius
                 npc.aiState = NpcAiState::Leashing;
 
@@ -519,15 +673,6 @@ void ZoneServer::processSpawns(float deltaSeconds, double currentTime) {
         if (record.state == SpawnState::WaitingToSpawn) {
             // Check if it's time to spawn
             if (currentTime >= record.next_spawn_time) {
-                // Defensive check: ensure spawn point isn't already occupied
-                if (record.current_entity_id != 0) {
-                    // This should never happen - log warning and fix state
-                    req::shared::logWarn("zone", std::string{"[SPAWN] Spawn point "} + 
-                        std::to_string(spawnId) + " is WaitingToSpawn but has current_entity_id=" +
-                        std::to_string(record.current_entity_id) + " - resetting entity_id");
-                    record.current_entity_id = 0;
-                }
-                
                 spawnNpcAtPoint(record, currentTime);
             }
         }
@@ -536,25 +681,6 @@ void ZoneServer::processSpawns(float deltaSeconds, double currentTime) {
 }
 
 void ZoneServer::spawnNpcAtPoint(SpawnRecord& record, double currentTime) {
-    // DEFENSIVE CHECK: Prevent duplicate spawns
-    if (record.state == SpawnState::Alive && record.current_entity_id != 0) {
-        // Spawn point already has a live NPC - this should never happen
-        req::shared::logWarn("zone", std::string{"[SPAWN] ERROR: Spawn point "} + 
-            std::to_string(record.spawn_point_id) + " is Alive with entity " +
-            std::to_string(record.current_entity_id) + " but hit spawn path - SKIPPING");
-        
-        // Verify the NPC actually exists
-        auto npcIt = npcs_.find(record.current_entity_id);
-        if (npcIt == npcs_.end()) {
-            req::shared::logWarn("zone", std::string{"[SPAWN] NPC "} + 
-                std::to_string(record.current_entity_id) + " does not exist - repairing spawn record");
-            record.state = SpawnState::WaitingToSpawn;
-            record.current_entity_id = 0;
-            record.next_spawn_time = currentTime + record.respawn_seconds;
-        }
-        return;
-    }
-    
     // Get NPC template
     const NpcTemplateData* tmpl = npcDataRepository_.GetTemplate(record.npc_template_id);
     if (!tmpl) {
@@ -608,8 +734,8 @@ void ZoneServer::spawnNpcAtPoint(SpawnRecord& record, double currentTime) {
     npc.behaviorFlags.isRoamer = tmpl->isRoamer;
     npc.behaviorFlags.leashToSpawn = true;
     
-    npc.behaviorParams.aggroRadius = tmpl->aggroRadius * 10.0f;  // Convert to GDD units
-    npc.behaviorParams.socialRadius = tmpl->assistRadius * 10.0f;
+    npc.behaviorParams.aggroRadius = tmpl->aggroRadius;
+    npc.behaviorParams.socialRadius = tmpl->assistRadius;
     npc.behaviorParams.leashRadius = 2000.0f;  // Default leash radius
     npc.behaviorParams.maxChaseDistance = 2500.0f;  // Default max chase
     npc.behaviorParams.preferredRange = 200.0f;  // Melee range
@@ -642,9 +768,6 @@ void ZoneServer::spawnNpcAtPoint(SpawnRecord& record, double currentTime) {
         ", spawnId=" + std::to_string(record.spawn_point_id) +
         ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," +
         std::to_string(npc.posZ) + ")");
-    
-    // Broadcast EntitySpawn to all connected players
-    broadcastEntitySpawn(npc.npcId);
 }
 
 void ZoneServer::scheduleRespawn(std::int32_t spawnPointId, double currentTime) {
@@ -670,6 +793,56 @@ void ZoneServer::scheduleRespawn(std::int32_t spawnPointId, double currentTime) 
     req::shared::logInfo("zone", std::string{"[SPAWN] Scheduled respawn: spawn_id="} +
         std::to_string(spawnPointId) + ", npc_id=" + std::to_string(record.npc_template_id) +
         ", respawn_in=" + std::to_string(record.respawn_seconds + jitter) + "s");
+}
+
+// ============================================================================
+// Debug / Inspection Tools
+// ============================================================================
+
+void ZoneServer::debugNpcHate(std::uint64_t npcId) {
+    auto npcIt = npcs_.find(npcId);
+    if (npcIt == npcs_.end()) {
+        req::shared::logWarn("zone", std::string{"[HATE] debug_hate failed - NPC not found: npcId="} +
+            std::to_string(npcId));
+        return;
+    }
+    
+    const auto& npc = npcIt->second;
+    
+    // Convert AI state to string for logging
+    std::string stateStr;
+    switch (npc.aiState) {
+        case req::shared::data::NpcAiState::Idle: stateStr = "Idle"; break;
+        case req::shared::data::NpcAiState::Alert: stateStr = "Alert"; break;
+        case req::shared::data::NpcAiState::Engaged: stateStr = "Engaged"; break;
+        case req::shared::data::NpcAiState::Leashing: stateStr = "Leashing"; break;
+        case req::shared::data::NpcAiState::Fleeing: stateStr = "Fleeing"; break;
+        case req::shared::data::NpcAiState::Dead: stateStr = "Dead"; break;
+        default: stateStr = "Unknown"; break;
+    }
+    
+    req::shared::logInfo("zone", std::string{"[HATE] NPC "} + std::to_string(npcId) +
+        " (name='" + npc.name + "', state=" + stateStr +
+        ", currentTargetId=" + std::to_string(npc.currentTargetId) + ") hate table:");
+    
+    if (npc.hateTable.empty()) {
+        req::shared::logInfo("zone", "[HATE]   (no hate entries)");
+    } else {
+        for (const auto& [entityId, hate] : npc.hateTable) {
+            // Check if entity is a valid player and alive
+            const auto it = players_.find(entityId);
+            bool alive = false;
+            std::string targetInfo = "unknown";
+            
+            if (it != players_.end()) {
+                alive = !it->second.isDead && it->second.isInitialized;
+                targetInfo = std::string("player") + (alive ? " (alive)" : " (dead)");
+            }
+            
+            req::shared::logInfo("zone", std::string{"[HATE]   target="} + std::to_string(entityId) +
+                " hate=" + std::to_string(hate) + " [" + targetInfo + "]");
+        }
+    }
 }
 
 } // namespace req::zone

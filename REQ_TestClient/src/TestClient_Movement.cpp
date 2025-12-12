@@ -199,6 +199,7 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
         std::cout << "  damage_self <amount> - Apply damage to character\n";
         std::cout << "  respawn - Respawn at bind point\n";
         std::cout << "  respawnall - Respawn all NPCs in zone immediately\n";
+        std::cout << "  debug_hate <npcId> - Inspect NPC hate table (server log)\n";
     }
     
     std::cout << "\n  [empty] - Stop moving\n";
@@ -531,6 +532,23 @@ void TestClient::runMovementTestLoop(std::shared_ptr<boost::asio::io_context> io
             }
             
             SendDevCommand(*zoneSocket, localCharacterId, "respawnall");
+            continue;
+        }
+        
+        // NEW: Check for dev command: debug_hate
+        if (command.find("debug_hate ") == 0) {
+            if (!isAdmin_) {
+                std::cout << "[DEV] ERROR: Dev commands require an admin account\n";
+                continue;
+            }
+            
+            std::string npcIdStr = command.substr(11); // Skip "debug_hate "
+            try {
+                std::uint64_t npcId = std::stoull(npcIdStr);
+                SendDevCommand(*zoneSocket, localCharacterId, "debug_hate", npcIdStr);
+            } catch (const std::exception& e) {
+                std::cout << "Invalid NPC ID: '" << npcIdStr << "'. Usage: debug_hate <npcId>\n";
+            }
             continue;
         }
         

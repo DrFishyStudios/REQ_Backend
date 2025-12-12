@@ -104,6 +104,10 @@ void ZoneServer::handlePlayerDeath(ZonePlayer& player) {
     player.xp = character->xp;
     player.combatStatsDirty = true;
     
+    // Remove from all NPC hate tables (prevents ghost aggro)
+    req::shared::logInfo("zone", "[DEATH] Removing character from all NPC hate tables");
+    removeCharacterFromAllHateTables(player.characterId);
+    
     // Save character immediately
     if (characterStore_.saveCharacter(*character)) {
         req::shared::logInfo("zone", "[DEATH] Character saved successfully");
