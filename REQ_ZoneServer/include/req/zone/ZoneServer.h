@@ -178,6 +178,7 @@ private:
     void addHate(req::shared::data::ZoneNpc& npc, std::uint64_t entityId, float amount);
     std::uint64_t getTopHateTarget(const req::shared::data::ZoneNpc& npc) const;
     void clearHate(req::shared::data::ZoneNpc& npc);
+    void removeCharacterFromAllHateTables(std::uint64_t characterId);
     
     // Combat
     void processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc& target, 
@@ -202,6 +203,9 @@ private:
     
     // GM / Dev commands for spawn testing
     void devRespawnAll(std::uint64_t characterId);
+    
+    // Debug / inspection tools
+    void debugNpcHate(std::uint64_t npcId);
 
     // Group operations (Phase 3)
     req::shared::data::Group& createGroup(std::uint64_t leaderCharacterId);

@@ -244,6 +244,8 @@ struct NpcBehaviorFlags {
  * 
  * Numeric parameters controlling NPC AI behavior ranges and timings.
  * Based on REQ_GDD_v09 section 27 (Spawn System).
+ * 
+ * All radii are in world units (same units as positions x/y/z).
  */
 struct NpcBehaviorParams {
     float aggroRadius{ 800.0f };        // Detection range for hostiles

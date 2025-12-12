@@ -534,6 +534,15 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
         } else if (devCmd.command == "respawnall") {
             devRespawnAll(devCmd.characterId);
             response.message = "Respawned all NPCs in zone";
+        } else if (devCmd.command == "debug_hate") {
+            try {
+                std::uint64_t npcId = std::stoull(devCmd.param1);
+                debugNpcHate(npcId);
+                response.message = "Hate table dumped to server log for NPC " + std::to_string(npcId);
+            } catch (...) {
+                response.success = false;
+                response.message = "Invalid NPC ID: " + devCmd.param1;
+            }
         } else {
             response.success = false;
             response.message = "Unknown command: " + devCmd.command;

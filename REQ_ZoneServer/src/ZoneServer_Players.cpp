@@ -132,6 +132,10 @@ void ZoneServer::removePlayer(std::uint64_t characterId) {
         req::shared::logError("zone", "[REMOVE_PLAYER] Continuing with player removal despite save failure");
     }
     
+    // Remove from all NPC hate tables before removing from zone
+    req::shared::logInfo("zone", "[REMOVE_PLAYER] Removing from all NPC hate tables");
+    removeCharacterFromAllHateTables(player.characterId);
+    
     // Remove from connection mapping (if connection still exists)
     if (player.connection) {
         auto connIt = connectionToCharacterId_.find(player.connection);
