@@ -18,8 +18,15 @@
 // Window Configuration Constants
 // ============================================================================
 namespace {
-    constexpr unsigned int DEFAULT_WINDOW_WIDTH = 1920u;
-    constexpr unsigned int DEFAULT_WINDOW_HEIGHT = 1080u;
+    constexpr unsigned int DEFAULT_WINDOW_WIDTH = 1800u;
+    constexpr unsigned int DEFAULT_WINDOW_HEIGHT = 900u;
+    
+    // Entity label modes
+    enum class LabelMode {
+        OFF,            // No labels
+        TARGET_HOVER,   // Show labels for selected target and hovered entity
+        ALL             // Show labels for all entities
+    };
 }
 
 // ============================================================================
@@ -126,6 +133,75 @@ void DrawGrid(sf::RenderWindow& window,
     crossV[0] = sf::Vertex(sf::Vector2f(center.x, center.y - crossSize), sf::Color(255, 255, 0, 200));
     crossV[1] = sf::Vertex(sf::Vector2f(center.x, center.y + crossSize), sf::Color(255, 255, 0, 200));
     window.draw(crossV);
+}
+
+// ============================================================================
+// DrawEntityLabels - Helper for drawing entity name labels
+// ============================================================================
+void DrawEntityLabels(sf::RenderWindow& window,
+                     const VizWorldState& worldState,
+                     LabelMode labelMode,
+                     std::uint64_t selectedTargetId,
+                     std::uint64_t hoveredEntityId,
+                     sf::Vector2f cameraWorld,
+                     float pixelsPerWorldUnit,
+                     float windowWidth,
+                     float windowHeight,
+                     sf::Font* font,
+                     unsigned int hudFontPx)
+{
+    if (!font || labelMode == LabelMode::OFF) {
+        return;
+    }
+    
+    // Calculate label font size (smaller than HUD)
+    unsigned int labelFontPx = std::max(14u, static_cast<unsigned int>(hudFontPx * 0.6f));
+    
+    auto worldToScreen = [&](float wx, float wy) -> sf::Vector2f {
+        const float screenX = (windowWidth * 0.5f) + (wx - cameraWorld.x) * pixelsPerWorldUnit;
+        const float screenY = (windowHeight * 0.5f) - (wy - cameraWorld.y) * pixelsPerWorldUnit;
+        return sf::Vector2f{ screenX, screenY };
+    };
+    
+    for (const auto& [id, entity] : worldState.getEntities()) {
+        bool shouldDrawLabel = false;
+        
+        switch (labelMode) {
+            case LabelMode::ALL:
+                shouldDrawLabel = true;
+                break;
+            case LabelMode::TARGET_HOVER:
+                shouldDrawLabel = (id == selectedTargetId || id == hoveredEntityId);
+                break;
+            default:
+                break;
+        }
+        
+        if (!shouldDrawLabel) {
+            continue;
+        }
+        
+        sf::Vector2f screenPos = worldToScreen(entity.posX, entity.posY);
+        
+        // Create label text
+        sf::Text labelText(*font);
+        labelText.setString(entity.name);
+        labelText.setCharacterSize(labelFontPx);
+        labelText.setFillColor(sf::Color(255, 255, 255, 220)); // Slightly transparent white
+        labelText.setOutlineColor(sf::Color(0, 0, 0, 180));
+        labelText.setOutlineThickness(1.0f);
+        
+        // Center text horizontally above the entity
+        sf::FloatRect textBounds = labelText.getLocalBounds();
+        labelText.setOrigin({ textBounds.size.x / 2.0f, textBounds.size.y });
+        
+        // Position above the entity circle (radius + offset)
+        float entityRadius = entity.isLocalPlayer ? 8.0f : 6.0f;
+        float labelOffset = entityRadius + 12.0f; // Distance above entity center
+        labelText.setPosition({ screenPos.x, screenPos.y - labelOffset });
+        
+        window.draw(labelText);
+    }
 }
 
 int main()
@@ -287,6 +363,9 @@ int main()
     sf::Clock fpsClock;
     int frameCount = 0;
     
+    // Entity label state
+    LabelMode labelMode = LabelMode::TARGET_HOVER; // Default: show labels for target + hover
+    
     // Message counters for HUD
     std::uint32_t msgCountSnapshot = 0;
     std::uint32_t msgCountSpawn = 0;
@@ -355,6 +434,25 @@ int main()
                     std::cout << "[Combat Log] " << (combat.combatLogEnabled ? "Enabled" : "Disabled") << "\n";
                 }
                 
+                // F8 key - Cycle Label Mode
+                if (keyPressed->code == sf::Keyboard::Key::F8)
+                {
+                    switch (labelMode) {
+                        case LabelMode::OFF:
+                            labelMode = LabelMode::TARGET_HOVER;
+                            std::cout << "[Labels] Mode: TARGET+HOVER\n";
+                            break;
+                        case LabelMode::TARGET_HOVER:
+                            labelMode = LabelMode::ALL;
+                            std::cout << "[Labels] Mode: ALL\n";
+                            break;
+                        case LabelMode::ALL:
+                            labelMode = LabelMode::OFF;
+                            std::cout << "[Labels] Mode: OFF\n";
+                            break;
+                    }
+                }
+                
                 // Tab key - Cycle targets
                 if (keyPressed->code == sf::Keyboard::Key::Tab)
                 {
@@ -394,10 +492,23 @@ int main()
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Scan::Space))
             jump = true;
 
-        if (inputX != 0.0f || inputY != 0.0f || jump)
+        // Track last sent input to detect changes (including stop)
+        static float lastSentX = 0.0f;
+        static float lastSentY = 0.0f;
+        static float lastSentYaw = 0.0f;
+        static bool lastSentJump = false;
+        
+        const float yaw = 0.0f; // TODO: hook up camera/heading later
+        
+        // Detect input change (exact compare for X/Y since they are -1/0/1)
+        constexpr float YAW_EPSILON = 0.01f;
+        const bool changed = (inputX != lastSentX) || 
+                            (inputY != lastSentY) || 
+                            (jump != lastSentJump) || 
+                            (std::abs(yaw - lastSentYaw) > YAW_EPSILON);
+        
+        if (changed)
         {
-            const float yaw = 0.0f; // TODO: hook up camera/heading later
-
             const bool ok = sendMovementIntent(
                 session,
                 inputX,
@@ -410,6 +521,21 @@ int main()
             if (!ok)
             {
                 std::cerr << "[REQ_VizTestClient] sendMovementIntent failed\n";
+            }
+            else
+            {
+                // Debug log stop packets (throttled to first 10)
+                static int stopPacketLogCount = 0;
+                if (inputX == 0.0f && inputY == 0.0f && !jump && stopPacketLogCount < 10) {
+                    std::cout << "[Movement] STOP packet sent (seq=" << movementSeq << ")\n";
+                    stopPacketLogCount++;
+                }
+                
+                // Update last sent values
+                lastSentX = inputX;
+                lastSentY = inputY;
+                lastSentYaw = yaw;
+                lastSentJump = jump;
             }
         }
 
@@ -576,7 +702,7 @@ int main()
             static_cast<float>(mousePixelPos.x), 
             static_cast<float>(mousePixelPos.y) 
         };
-        VizCombat_DrawHoverTooltip(window, worldState, mousePos, cameraWorld, pixelsPerWorldUnit, 
+        VizCombat_DrawHoverTooltip(window, combat, worldState, mousePos, cameraWorld, pixelsPerWorldUnit, 
                                     windowWidth, windowHeight, fontLoaded ? &consoleFont : nullptr);
 
         // Draw player trail
@@ -615,6 +741,12 @@ int main()
             shape.setPosition(screenPos);
             window.draw(shape);
         }
+        
+        // Draw entity labels
+        DrawEntityLabels(window, worldState, labelMode, combat.selectedTargetId, 
+                         combat.hoveredEntityId, cameraWorld, pixelsPerWorldUnit, 
+                         windowWidth, windowHeight, 
+                         fontLoaded ? &consoleFont : nullptr, 20u);
         
         // Update HUD data (target info + message counts + FPS)
         hudData.snapshotCount = msgCountSnapshot;

@@ -15,6 +15,7 @@
 struct VizCombatState {
     // Targeting
     std::uint64_t selectedTargetId{ 0 };
+    std::uint64_t hoveredEntityId{ 0 };  // Entity currently under mouse cursor
     
     // Attack cooldown
     sf::Clock attackClock;
@@ -146,8 +147,10 @@ void VizCombat_CycleTarget(
  * 
  * Draws tooltip for entity near mouse cursor.
  * Shows name + HP if within hover radius.
+ * Updates combat.hoveredEntityId with the currently hovered entity (or 0).
  * 
  * @param window SFML window
+ * @param combat Combat state (hoveredEntityId will be updated)
  * @param worldState World state
  * @param mouseScreenPos Mouse position in screen space
  * @param cameraWorld Camera position in world space
@@ -159,6 +162,7 @@ void VizCombat_CycleTarget(
  */
 void VizCombat_DrawHoverTooltip(
     sf::RenderWindow& window,
+    VizCombatState& combat,
     const VizWorldState& worldState,
     sf::Vector2f mouseScreenPos,
     sf::Vector2f cameraWorld,

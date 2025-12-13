@@ -394,6 +394,7 @@ void VizCombat_CycleTarget(
 
 void VizCombat_DrawHoverTooltip(
     sf::RenderWindow& window,
+    VizCombatState& combat,
     const VizWorldState& worldState,
     sf::Vector2f mouseScreenPos,
     sf::Vector2f cameraWorld,
@@ -404,6 +405,7 @@ void VizCombat_DrawHoverTooltip(
     float hoverRadiusPx)
 {
     if (!font) {
+        combat.hoveredEntityId = 0;
         return; // Font not loaded
     }
     
@@ -433,6 +435,9 @@ void VizCombat_DrawHoverTooltip(
             hoveredEntity = &entity;
         }
     }
+    
+    // Update combat state
+    combat.hoveredEntityId = hoveredId;
     
     // Draw tooltip if hovering over entity
     if (hoveredEntity) {
