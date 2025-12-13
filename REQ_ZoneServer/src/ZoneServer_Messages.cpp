@@ -221,6 +221,21 @@ void ZoneServer::handleMessage(const req::shared::MessageHeader& header,
 
         req::shared::logInfo("zone", std::string{"[ZONEAUTH] COMPLETE: characterId="} + 
             std::to_string(characterId) + " successfully entered zone \"" + zoneName_ + "\"");
+        
+        // DEBUG: Zone state summary
+        int aliveNpcCount = 0;
+        for (const auto& [npcId, npc] : npcs_) {
+            if (npc.isAlive) aliveNpcCount++;
+        }
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Zone state: totalPlayers="} +
+            std::to_string(players_.size()) + ", aliveNPCs=" + std::to_string(aliveNpcCount) +
+            ", totalNPCs=" + std::to_string(npcs_.size()));
+        
+        // CRITICAL: Send all existing entities to the new client
+        req::shared::logInfo("zone", std::string{"[ZONEAUTH] Sending initial entity sync to characterId="} +
+            std::to_string(characterId));
+        sendAllKnownEntities(connection, characterId);
+        
         break;
     }
     

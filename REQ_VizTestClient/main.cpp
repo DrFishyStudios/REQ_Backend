@@ -294,6 +294,10 @@ int main()
     std::uint32_t msgCountDespawn = 0;
     std::uint32_t msgCountAttackResult = 0;
     std::uint32_t msgCountDevResponse = 0;
+    std::uint32_t msgCountUnhandled = 0;
+    
+    // DEBUG: Track one NPC for respawn testing
+    std::uint64_t debugNpcId = 0;
 
     // ---------------------------------------------------------------------
     // 5) Main loop: input, zone messages, render
@@ -338,7 +342,25 @@ int main()
                 // F key - Attack
                 if (keyPressed->scancode == sf::Keyboard::Scan::F)
                 {
-                    VizCombat_HandleAttackKey(combat, session);
+                    // Check if target is dead before sending attack
+                    if (combat.selectedTargetId != 0) {
+                        const auto& entities = worldState.getEntities();
+                        auto it = entities.find(combat.selectedTargetId);
+                        if (it != entities.end() && it->second.hp <= 0) {
+                            // Target is dead, don't attack
+                            std::cout << "[COMBAT] Cannot attack - target is dead\n";
+                            combat.combatLog.push_back("Target is dead");
+                            if (combat.combatLog.size() > combat.MAX_LOG_LINES) {
+                                combat.combatLog.pop_front();
+                            }
+                        } else {
+                            // Target alive or doesn't exist, let HandleAttackKey handle it
+                            VizCombat_HandleAttackKey(combat, session);
+                        }
+                    } else {
+                        // No target selected
+                        VizCombat_HandleAttackKey(combat, session);
+                    }
                 }
                 
                 // F1 key - Toggle HUD
@@ -379,6 +401,14 @@ int main()
         }
 
         // --- Keyboard -> movement intent (WASD + Space) ---
+        // Change detection: only send when input changes (including stop)
+        static float lastSentX = 0.0f;
+        static float lastSentY = 0.0f;
+        static float lastSentYaw = 0.0f;
+        static bool lastSentJump = false;
+        static int debugStopCount = 0;
+        constexpr int MAX_DEBUG_STOPS = 10;
+        
         float inputX = 0.0f;
         float inputY = 0.0f;
         bool  jump = false;
@@ -394,10 +424,16 @@ int main()
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Scan::Space))
             jump = true;
 
-        if (inputX != 0.0f || inputY != 0.0f || jump)
+        const float yaw = 0.0f; // TODO: hook up camera/heading later
+        
+        // Detect if input changed (exact compare for X/Y since they're -1/0/1)
+        bool changed = (inputX != lastSentX) || 
+                      (inputY != lastSentY) || 
+                      (jump != lastSentJump) || 
+                      (yaw != lastSentYaw);
+        
+        if (changed)
         {
-            const float yaw = 0.0f; // TODO: hook up camera/heading later
-
             const bool ok = sendMovementIntent(
                 session,
                 inputX,
@@ -410,6 +446,20 @@ int main()
             if (!ok)
             {
                 std::cerr << "[REQ_VizTestClient] sendMovementIntent failed\n";
+            }
+            else
+            {
+                // DEBUG: Log stop intents (throttled)
+                if (inputX == 0.0f && inputY == 0.0f && !jump && debugStopCount < MAX_DEBUG_STOPS) {
+                    std::cout << "[MOVEMENT] STOP intent sent (seq=" << movementSeq << ")\n";
+                    debugStopCount++;
+                }
+                
+                // Update last sent values
+                lastSentX = inputX;
+                lastSentY = inputY;
+                lastSentYaw = yaw;
+                lastSentJump = jump;
             }
         }
 
@@ -440,8 +490,35 @@ int main()
                     req::shared::protocol::EntitySpawnData spawn;
                     if (parseEntitySpawn(msg.payload, spawn))
                     {
+                        // Check if this is a respawn (entity already exists)
+                        bool isRespawn = (worldState.getEntities().find(spawn.entityId) != worldState.getEntities().end());
+                        
+                        // DEBUG: Pick first NPC as debug target
+                        if (debugNpcId == 0 && spawn.entityType == 1) {
+                            debugNpcId = spawn.entityId;
+                            std::cout << "[DEBUG-RESPAWN-INIT] Tracking NPC: entityId=" << debugNpcId
+                                     << ", name=\"" << spawn.name << "\"\n";
+                        }
+                        
+                        // DEBUG: Log EntitySpawn for tracked NPC
+                        if (spawn.entityId == debugNpcId) {
+                            std::cout << "[CLIENT-RECV-SPAWN] entityId=" << spawn.entityId
+                                     << ", entityType=" << static_cast<int>(spawn.entityType)
+                                     << ", pos=(" << spawn.posX << "," << spawn.posY << "," << spawn.posZ << ")"
+                                     << ", hp=" << spawn.hp << "/" << spawn.maxHp
+                                     << ", isRespawn=" << (isRespawn ? "true" : "false") << "\n";
+                        }
+                        
                         worldState.applyEntitySpawn(spawn);
                         msgCountSpawn++;
+                        
+                        // DEBUG: Log respawns
+                        if (isRespawn && spawn.entityType == 1) {  // NPC respawn
+                            std::cout << "[DEBUG-RESPAWN] NPC respawned: entityId=" << spawn.entityId
+                                     << ", name=\"" << spawn.name << "\""
+                                     << ", hp=" << spawn.hp << "/" << spawn.maxHp
+                                     << ", pos=(" << spawn.posX << "," << spawn.posY << "," << spawn.posZ << ")\n";
+                        }
                     }
                     break;
                 }
@@ -453,6 +530,11 @@ int main()
                     {
                         worldState.applyEntityUpdate(update);
                         msgCountUpdate++;
+                        
+                        // Clear target if updated entity is our target and now dead
+                        if (update.entityId == combat.selectedTargetId && update.hp <= 0) {
+                            VizCombat_ClearTargetIfDespawned(combat, worldState);
+                        }
                     }
                     break;
                 }
@@ -485,6 +567,7 @@ int main()
                 }
 
                 default:
+                    msgCountUnhandled++;
                     if (unhandledLogBudget > 0)
                     {
                         std::cout << "[REQ_VizTestClient] Unhandled zone msg type = "
@@ -556,10 +639,11 @@ int main()
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastDebugTime);
             
             if (elapsed.count() >= 2) {
-                const float gridSpacingWorld = 80.0f / pixelsPerWorldUnit;
-                std::cout << "[DEBUG] cameraWorld=(" << cameraWorld.x << ", " << cameraWorld.y 
-                         << "), pixelsPerWorldUnit=" << pixelsPerWorldUnit 
-                         << ", gridSpacingWorld=" << gridSpacingWorld << "\n";
+                std::cout << "[DEBUG-MESSAGES] Snapshot=" << msgCountSnapshot
+                         << ", Spawn=" << msgCountSpawn
+                         << ", Update=" << msgCountUpdate
+                         << ", Despawn=" << msgCountDespawn
+                         << ", Unhandled=" << msgCountUnhandled << "\n";
                 lastDebugTime = now;
             }
         }
@@ -602,7 +686,18 @@ int main()
             const sf::Vector2f screenPos = worldToScreen(entity.posX, entity.posY);
 
             sf::CircleShape shape;
-            shape.setRadius(entity.isLocalPlayer ? 8.f : 6.f);
+            
+            // DEBUG: Make NPCs more visible (larger radius + outline)
+            if (entity.isNpc) {
+                shape.setRadius(10.f);  // Larger for debugging
+                shape.setOutlineColor(sf::Color::Yellow);
+                shape.setOutlineThickness(2.0f);
+            } else if (entity.isLocalPlayer) {
+                shape.setRadius(8.f);
+            } else {
+                shape.setRadius(6.f);
+            }
+            
             shape.setOrigin({ shape.getRadius(), shape.getRadius() });
 
             if (entity.isNpc)

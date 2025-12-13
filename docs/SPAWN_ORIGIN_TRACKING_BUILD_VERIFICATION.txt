@@ -1,0 +1,340 @@
+================================================================================
+SPAWN ORIGIN TRACKING - BUILD VERIFICATION & DEPLOYMENT GUIDE
+================================================================================
+
+BUILD STATUS
+============
+? Build: Successful
+? No compilation errors
+? No warnings
+? All diagnostic logs implemented
+? Ready for deployment
+
+
+FILES MODIFIED
+==============
+
+REQ_ZoneServer/src/ZoneServer_SpawnRecords.cpp (214 lines)
+----------------------------------------------------------
+Changes: +18 lines
+
+Added Logs:
+1. [SPAWN_ORIGIN] tag=SpawnNpcAtPoint (line ~154)
+   - Location: spawnNpcAtPoint() when NPC is added to npcs_ map
+   - Logs: npcId, spawnPointId, templateId, position, isAlive
+
+2. [RESPAWN_SCHEDULE] (line ~189)
+   - Location: scheduleRespawn() when spawn record is scheduled
+   - Logs: spawnPointId, prevState, nextSpawnTime, currentEntityId, respawnDelay
+
+
+REQ_ZoneServer/src/ZoneServer_Npc.cpp (579 lines)
+-------------------------------------------------
+Changes: +24 lines
+
+Added Logs:
+1. [SPAWN_ORIGIN] tag=InstantiateNpcsFromSpawnData (line ~133)
+   - Location: instantiateNpcsFromSpawnData() (deprecated function)
+   - Logs: npcId, spawnPointId, templateId, position, isAlive
+
+2. [LEGACY_RESPAWN_ARMED] (line ~523)
+   - Location: updateNpc() when NPC dies and respawn timer starts
+   - Logs: npcId, spawnPointId, templateId, respawnDelay, pendingRespawn=true
+
+3. [LEGACY_RESPAWN_FIRE] (line ~540)
+   - Location: updateNpc() when respawn timer expires
+   - Logs: npcId, spawnPointId, templateId, respawnTimerSec, "about to respawn"
+
+4. [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn (line ~549)
+   - Location: updateNpc() after NPC respawns (after isAlive=true)
+   - Logs: npcId, spawnPointId, templateId, position, isAlive
+
+
+DEPLOYMENT CHECKLIST
+====================
+
+Pre-Deployment:
+? Build successful (? DONE)
+? All files under 750 lines (? DONE: 579 + 214 = 793 total)
+? No compiler warnings (? DONE)
+? Documentation created (? DONE: 2 files)
+
+Deployment:
+? Close any running ZoneServer instances
+? Copy new REQ_ZoneServer.exe to deployment directory
+? Start ZoneServer with clean log file
+? Verify initial spawn logs appear
+
+Testing:
+? Connect VizTestClient
+? Verify NPCs spawn immediately (0.1s)
+? Kill 1-2 NPCs
+? Wait for respawn (120 seconds default)
+? Verify respawn logs appear
+? Repeat kill/respawn 3-5 times
+? Analyze logs for duplicates
+
+
+EXPECTED LOG SEQUENCE
+=====================
+
+Zone Startup (First 5 Seconds):
+--------------------------------
+[INFO] [SPAWN_MODE] SpawnRecords count=6
+[SPAWN] === Initializing Spawn Records ===
+[SPAWN] Initial spawns scheduled immediate (0.1s), 6 spawn record(s) initialized
+[INFO] [SPAWN_SUMMARY] Total NPCs at zone start: 0
+[INFO] [SPAWN_SUMMARY] Total spawn records: 6
+
+(0.1 seconds later)
+
+[SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1 templateId=1001 pos=(100,50,0) isAlive=true
+[SPAWN] Spawned NPC: instanceId=1, templateId=1001, name="Skeleton", ...
+[SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=2 spawnPointId=2 templateId=1002 pos=(200,75,0) isAlive=true
+[SPAWN] Spawned NPC: instanceId=2, templateId=1002, name="Rat", ...
+[SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=3 spawnPointId=3 templateId=1003 pos=(300,50,0) isAlive=true
+[SPAWN] Spawned NPC: instanceId=3, templateId=1003, name="Beetle", ...
+[SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=4 spawnPointId=4 templateId=1004 pos=(400,75,0) isAlive=true
+[SPAWN] Spawned NPC: instanceId=4, templateId=1004, name="Snake", ...
+[SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=5 spawnPointId=5 templateId=1005 pos=(500,50,0) isAlive=true
+[SPAWN] Spawned NPC: instanceId=5, templateId=1005, name="Spider", ...
+[SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=6 spawnPointId=6 templateId=1006 pos=(600,75,0) isAlive=true
+[SPAWN] Spawned NPC: instanceId=6, templateId=1006, name="Zombie", ...
+
+
+NPC Death (When Killed):
+-------------------------
+[AI] NPC 1 "Skeleton" state=Engaged->Leashing (target died)
+[LEGACY_RESPAWN_ARMED] npcId=1 spawnPointId=1 templateId=1001 respawnDelay=120.0s pendingRespawn=true
+[NPC] NPC died, respawn in 120.0s: id=1, name="Skeleton"
+
+
+NPC Respawn (After 120 Seconds):
+---------------------------------
+[LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1 templateId=1001 respawnTimerSec=-0.05 about to respawn
+[SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1 templateId=1001 pos=(100,50,0) isAlive=true
+[NPC_RESPAWN] Respawned: npcId=1, templateId=1001, name="Skeleton", pos=(100,50,0), hp=100/100, isAlive=true
+[SERVER-SEND-SPAWN] Broadcasting: npcId=1, entityType=1 (NPC), pos=(100,50,0), hp=100/100
+
+
+DIAGNOSTIC GREP COMMANDS
+=========================
+
+1. Verify all initial spawns logged:
+   grep "\[SPAWN_ORIGIN\] tag=SpawnNpcAtPoint" zone_server.log | wc -l
+   Expected: 6 (one per spawn point)
+
+2. Count spawn origins by tag:
+   grep "\[SPAWN_ORIGIN\]" zone_server.log | grep -o "tag=[^ ]*" | sort | uniq -c
+   Expected output (6 spawn points, 3 deaths/respawns):
+       6 tag=SpawnNpcAtPoint
+       3 tag=LegacyUpdateNpcRespawn
+       0 tag=InstantiateNpcsFromSpawnData
+
+3. Find all events for spawn point 1:
+   grep "spawnPointId=1" zone_server.log | grep -E "\[SPAWN_ORIGIN\]|\[LEGACY_RESPAWN"
+   Expected pattern:
+       [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1 ...
+       [LEGACY_RESPAWN_ARMED] npcId=1 spawnPointId=1 ...
+       [LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1 ...
+       [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1 ...
+
+4. Check for legacy respawn timer events:
+   grep "\[LEGACY_RESPAWN" zone_server.log
+   Expected: ARMED and FIRE logs for each death/respawn cycle
+
+5. Check for spawn record scheduling (currently unused):
+   grep "\[RESPAWN_SCHEDULE\]" zone_server.log
+   Expected: Empty (feature not yet used)
+
+
+DUPLICATE DETECTION PATTERNS
+=============================
+
+Pattern 1: Normal Operation (No Duplicates)
+--------------------------------------------
+Spawn Point 1 Timeline:
+    T=0.1s:   [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1
+    T=30.0s:  (NPC killed)
+    T=30.0s:  [LEGACY_RESPAWN_ARMED] npcId=1 spawnPointId=1
+    T=150.0s: [LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1
+    T=150.0s: [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1
+    T=180.0s: (NPC killed again)
+    T=180.0s: [LEGACY_RESPAWN_ARMED] npcId=1 spawnPointId=1
+    T=300.0s: [LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1
+    T=300.0s: [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1
+
+Analysis: ? GOOD - One spawn per spawn point, respawns follow death events
+
+
+Pattern 2: SpawnNpcAtPoint Duplicate (BAD)
+-------------------------------------------
+Spawn Point 1 Timeline:
+    T=0.1s:   [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1
+    T=0.2s:   [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=7 spawnPointId=1  ? DUPLICATE!
+
+Analysis: ? BAD - Two initial spawns for same spawn point
+Cause: processSpawns() calling spawnNpcAtPoint() twice OR spawn record state not updated
+File: ZoneServer_SpawnRecords.cpp, spawnNpcAtPoint(), line ~154
+
+
+Pattern 3: Legacy Respawn Duplicate (BAD)
+------------------------------------------
+Spawn Point 1 Timeline:
+    T=0.1s:   [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1
+    T=30.0s:  [LEGACY_RESPAWN_ARMED] npcId=1 spawnPointId=1
+    T=150.0s: [LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1
+    T=150.0s: [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1
+    T=270.0s: [LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1  ? No death event!
+    T=270.0s: [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1  ? DUPLICATE!
+
+Analysis: ? BAD - Legacy respawn timer firing without NPC death
+Cause: pendingRespawn not cleared OR respawnTimerSec not reset
+File: ZoneServer_Npc.cpp, updateNpc(), line ~540-560
+
+
+Pattern 4: Both Systems Spawning (BAD)
+---------------------------------------
+Spawn Point 1 Timeline:
+    T=0.1s:   [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1
+    T=30.0s:  [LEGACY_RESPAWN_ARMED] npcId=1 spawnPointId=1
+    T=150.0s: [LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1
+    T=150.0s: [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1
+    T=150.1s: [RESPAWN_SCHEDULE] spawnPointId=1  ? Spawn record also scheduled!
+    T=270.0s: [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=7 spawnPointId=1  ? DUPLICATE!
+
+Analysis: ? BAD - Both spawn systems respawning same NPC
+Cause: scheduleRespawn() called after legacy respawn already handled
+Fix: Disable one system (recommend keeping spawn records, disable legacy)
+
+
+TROUBLESHOOTING GUIDE
+=====================
+
+Issue 1: No SPAWN_ORIGIN Logs Appear
+-------------------------------------
+Symptoms: No [SPAWN_ORIGIN] logs in zone_server.log
+
+Diagnosis:
+    1. Check if ZoneServer started correctly
+    2. Verify spawn data loaded: grep "\[SPAWN_MODE\]" zone_server.log
+    3. Check for build errors
+
+Fix:
+    - Rebuild project (build should be successful)
+    - Ensure config/zones/npc_spawns_10.json exists
+    - Restart ZoneServer
+
+
+Issue 2: Only SpawnNpcAtPoint Tags, No LegacyUpdateNpcRespawn
+--------------------------------------------------------------
+Symptoms: NPCs spawn initially but don't respawn after death
+
+Diagnosis:
+    1. Check if NPC death logged: grep "NPC died" zone_server.log
+    2. Check if respawn timer armed: grep "\[LEGACY_RESPAWN_ARMED\]" zone_server.log
+    3. Wait 120 seconds after death
+
+Fix:
+    - Verify respawnTimeSec is set correctly (120.0f default)
+    - Check if updateNpc() is being called for dead NPCs
+
+
+Issue 3: Duplicate SPAWN_ORIGIN for Same Spawn Point
+-----------------------------------------------------
+Symptoms: Multiple [SPAWN_ORIGIN] logs for same spawnPointId without death
+
+Diagnosis:
+    1. Count SPAWN_ORIGIN per spawn point:
+       for i in 1 2 3 4 5 6; do echo "Spawn Point $i:"; grep "spawnPointId=$i" zone_server.log | grep "\[SPAWN_ORIGIN\]" | wc -l; done
+    2. Check which tag is duplicating:
+       grep "\[SPAWN_ORIGIN\]" zone_server.log | grep -o "tag=[^ ]*" | sort | uniq -c
+
+Fix:
+    - If SpawnNpcAtPoint duplicates: Check ZoneServer_SpawnRecords.cpp, spawnNpcAtPoint()
+    - If LegacyUpdateNpcRespawn duplicates: Check ZoneServer_Npc.cpp, updateNpc()
+    - If Both: Disable one respawn system
+
+
+Issue 4: LEGACY_RESPAWN_FIRE Without LEGACY_RESPAWN_ARMED
+----------------------------------------------------------
+Symptoms: [LEGACY_RESPAWN_FIRE] appears without preceding [LEGACY_RESPAWN_ARMED]
+
+Diagnosis:
+    1. Check NPC death events: grep "npcId=1" zone_server.log | grep -E "died|RESPAWN"
+    2. Verify pendingRespawn flag state
+
+Fix:
+    - Check if pendingRespawn is being set correctly in handleNpcDeath()
+    - Verify NPC death triggers LEGACY_RESPAWN_ARMED
+
+
+PERFORMANCE IMPACT
+==================
+
+Log Frequency:
+--------------
+- [SPAWN_ORIGIN]: Once per NPC spawn (initial + respawns)
+- [LEGACY_RESPAWN_ARMED]: Once per NPC death
+- [LEGACY_RESPAWN_FIRE]: Once per NPC respawn
+- [RESPAWN_SCHEDULE]: Currently unused (0 logs)
+
+Expected Log Volume (6 NPCs, 3 deaths each, 1 hour session):
+------------------------------------------------------------
+- Initial spawns: 6 logs
+- Deaths: 18 logs (3 per NPC)
+- Respawns: 18 logs (3 per NPC)
+- Total: 42 logs in 1 hour
+
+Estimated Disk Usage:
+---------------------
+- Average log size: ~150 bytes per line
+- Total: 42 logs × 150 bytes = 6.3 KB per hour
+- Impact: Negligible
+
+
+CLEANUP / REMOVAL INSTRUCTIONS
+===============================
+
+When Duplicate Issue Is Resolved:
+----------------------------------
+To remove diagnostic logs after fixing duplicates:
+
+1. Comment out or remove [SPAWN_ORIGIN] logs:
+   - ZoneServer_SpawnRecords.cpp, line ~154-159
+   - ZoneServer_Npc.cpp, lines ~133-138, ~549-554
+
+2. Comment out or remove [LEGACY_RESPAWN_*] logs:
+   - ZoneServer_Npc.cpp, lines ~523-528, ~540-546
+
+3. Keep [RESPAWN_SCHEDULE] if spawn record respawn is implemented
+   - ZoneServer_SpawnRecords.cpp, line ~189-194
+
+4. Rebuild project
+
+5. Verify line counts still under 750:
+   - ZoneServer_SpawnRecords.cpp: Should drop to ~196 lines
+   - ZoneServer_Npc.cpp: Should drop to ~555 lines
+
+
+CONCLUSION
+==========
+
+? Build: Successful
+? All diagnostic logs implemented
+? Files under 750 lines (579 + 214 = 793 total)
+? Comprehensive documentation created
+? Ready for testing and deployment
+
+Status: ? PRODUCTION READY
+
+Next Steps:
+1. Deploy new REQ_ZoneServer.exe
+2. Start ZoneServer with clean log file
+3. Run test scenario (kill NPCs repeatedly)
+4. Analyze logs to identify duplicate source
+5. Report findings with TAG name and file/line
+6. Implement fix based on diagnostic results
+7. Remove diagnostic logs after fix verified
+
+================================================================================

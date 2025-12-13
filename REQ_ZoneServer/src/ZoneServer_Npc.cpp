@@ -113,6 +113,13 @@ void ZoneServer::instantiateNpcsFromSpawnData() {
         npcs_[npc.npcId] = npc;
         spawnedCount++;
 
+        // DIAGNOSTIC: Log spawn origin for deprecated instantiate path
+        req::shared::logInfo("zone", std::string{"[SPAWN_ORIGIN] tag=InstantiateNpcsFromSpawnData npcId="} +
+            std::to_string(npc.npcId) + " spawnPointId=" + std::to_string(spawn.spawnId) +
+            " templateId=" + std::to_string(npc.templateId) +
+            " pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+            " isAlive=" + (npc.isAlive ? "true" : "false"));
+
         req::shared::logInfo("zone", std::string{"[SPAWN] Spawned NPC: instanceId="} +
             std::to_string(npc.npcId) + ", templateId=" + std::to_string(npc.templateId) +
             ", name=\"" + npc.name + "\", level=" + std::to_string(npc.level) +
@@ -570,6 +577,13 @@ void ZoneServer::updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds) 
             npc.respawnTimerSec = npc.respawnTimeSec;
             npc.aiState = NpcAiState::Dead;
 
+            // DIAGNOSTIC: Log legacy respawn timer armed
+            req::shared::logInfo("zone", std::string{"[LEGACY_RESPAWN_ARMED] npcId="} +
+                std::to_string(npc.npcId) + " spawnPointId=" + std::to_string(npc.spawnId) +
+                " templateId=" + std::to_string(npc.templateId) +
+                " respawnDelay=" + std::to_string(npc.respawnTimeSec) + "s" +
+                " pendingRespawn=true");
+
             req::shared::logInfo("zone", std::string{"[NPC] NPC died, respawn in "} +
                 std::to_string(npc.respawnTimeSec) + "s: id=" + std::to_string(npc.npcId) +
                 ", name=\"" + npc.name + "\"");
@@ -578,6 +592,13 @@ void ZoneServer::updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds) 
             npc.respawnTimerSec -= deltaSeconds;
 
             if (npc.respawnTimerSec <= 0.0f) {
+                // DIAGNOSTIC: Log legacy respawn timer fire (before respawn)
+                req::shared::logInfo("zone", std::string{"[LEGACY_RESPAWN_FIRE] npcId="} +
+                    std::to_string(npc.npcId) + " spawnPointId=" + std::to_string(npc.spawnId) +
+                    " templateId=" + std::to_string(npc.templateId) +
+                    " respawnTimerSec=" + std::to_string(npc.respawnTimerSec) +
+                    " about to respawn");
+
                 // Respawn NPC
                 npc.posX = npc.spawnX;
                 npc.posY = npc.spawnY;
@@ -590,10 +611,27 @@ void ZoneServer::updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds) 
                 clearHate(npc);
                 npc.meleeAttackTimer = 0.0f;
 
-                req::shared::logInfo("zone", std::string{"[NPC] Respawned: id="} +
-                    std::to_string(npc.npcId) + ", name=\"" + npc.name + "\"" +
-                    ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," +
-                    std::to_string(npc.posZ) + ")");
+                // DIAGNOSTIC: Log spawn origin for legacy respawn path
+                req::shared::logInfo("zone", std::string{"[SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId="} +
+                    std::to_string(npc.npcId) + " spawnPointId=" + std::to_string(npc.spawnId) +
+                    " templateId=" + std::to_string(npc.templateId) +
+                    " pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+                    " isAlive=" + (npc.isAlive ? "true" : "false"));
+
+                req::shared::logInfo("zone", std::string{"[NPC_RESPAWN] Respawned: npcId="} +
+                    std::to_string(npc.npcId) + ", templateId=" + std::to_string(npc.templateId) +
+                    ", name=\"" + npc.name + "\", pos=(" + std::to_string(npc.posX) + "," +
+                    std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+                    ", hp=" + std::to_string(npc.currentHp) + "/" + std::to_string(npc.maxHp) +
+                    ", isAlive=" + (npc.isAlive ? "true" : "false"));
+                
+                // CRITICAL: Broadcast EntitySpawn so clients see the respawned NPC
+                req::shared::logInfo("zone", std::string{"[SERVER-SEND-SPAWN] Broadcasting: npcId="} +
+                    std::to_string(npc.npcId) + ", entityType=1 (NPC)" +
+                    ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+                    ", hp=" + std::to_string(npc.currentHp) + "/" + std::to_string(npc.maxHp));
+                
+                broadcastEntitySpawn(npc.npcId);
             }
         }
         return;
@@ -606,194 +644,8 @@ void ZoneServer::updateNpc(req::shared::data::ZoneNpc& npc, float deltaSeconds) 
 // ============================================================================
 // Spawn Manager - Lifecycle Management
 // ============================================================================
-
-void ZoneServer::initializeSpawnRecords() {
-    req::shared::logInfo("zone", "[SPAWN] === Initializing Spawn Records ===");
-    
-    const auto& spawns = npcDataRepository_.GetZoneSpawns();
-    if (spawns.empty()) {
-        req::shared::logInfo("zone", "[SPAWN] No spawn points defined for this zone");
-        return;
-    }
-    
-    // Get current time for initial spawn scheduling
-    auto now = std::chrono::system_clock::now();
-    double currentTime = std::chrono::duration<double>(now.time_since_epoch()).count();
-    
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    
-    int recordCount = 0;
-    for (const auto& spawn : spawns) {
-        // Verify NPC template exists
-        const NpcTemplateData* tmpl = npcDataRepository_.GetTemplate(spawn.npcId);
-        if (!tmpl) {
-            req::shared::logWarn("zone", std::string{"[SPAWN] Spawn point "} +
-                std::to_string(spawn.spawnId) + " references unknown NPC template: " +
-                std::to_string(spawn.npcId) + ", skipping");
-            continue;
-        }
-        
-        // Create spawn record
-        SpawnRecord record;
-        record.spawn_point_id = spawn.spawnId;
-        record.npc_template_id = spawn.npcId;
-        record.posX = spawn.posX;
-        record.posY = spawn.posY;
-        record.posZ = spawn.posZ;
-        record.heading = spawn.heading;
-        record.respawn_seconds = static_cast<float>(spawn.respawnSeconds);
-        record.respawn_jitter_seconds = static_cast<float>(spawn.respawnVarianceSeconds);
-        
-        // Initialize as WaitingToSpawn with small random offset (0-10 seconds)
-        record.state = SpawnState::WaitingToSpawn;
-        std::uniform_real_distribution<float> offsetDist(0.0f, 10.0f);
-        float initialOffset = offsetDist(gen);
-        record.next_spawn_time = currentTime + initialOffset;
-        record.current_entity_id = 0;
-        
-        // Store in map
-        spawnRecords_[spawn.spawnId] = record;
-        recordCount++;
-        
-        if (enableSpawnDebugLogging_) {
-            req::shared::logInfo("zone", std::string{"[SPAWN] Initialized spawn record: spawn_id="} +
-                std::to_string(spawn.spawnId) + ", npc_id=" + std::to_string(spawn.npcId) +
-                " (" + tmpl->name + ")" +
-                ", initial_spawn_in=" + std::to_string(initialOffset) + "s");
-        }
-    }
-    
-    req::shared::logInfo("zone", std::string{"[SPAWN] Initialized "} + std::to_string(recordCount) +
-        " spawn record(s) from " + std::to_string(spawns.size()) + " spawn point(s)");
-}
-
-void ZoneServer::processSpawns(float deltaSeconds, double currentTime) {
-    for (auto& [spawnId, record] : spawnRecords_) {
-        if (record.state == SpawnState::WaitingToSpawn) {
-            // Check if it's time to spawn
-            if (currentTime >= record.next_spawn_time) {
-                spawnNpcAtPoint(record, currentTime);
-            }
-        }
-        // Alive spawns are managed by NPC death system
-    }
-}
-
-void ZoneServer::spawnNpcAtPoint(SpawnRecord& record, double currentTime) {
-    // Get NPC template
-    const NpcTemplateData* tmpl = npcDataRepository_.GetTemplate(record.npc_template_id);
-    if (!tmpl) {
-        req::shared::logError("zone", std::string{"[SPAWN] Cannot spawn - template not found: npc_id="} +
-            std::to_string(record.npc_template_id) + ", spawn_id=" + std::to_string(record.spawn_point_id));
-        
-        // Reschedule spawn to retry later
-        record.next_spawn_time = currentTime + record.respawn_seconds;
-        return;
-    }
-    
-    // Create runtime NPC instance from template
-    req::shared::data::ZoneNpc npc;
-    
-    // Generate unique instance ID
-    npc.npcId = nextNpcInstanceId_++;
-    
-    // Copy data from template
-    npc.name = tmpl->name;
-    npc.level = tmpl->level;
-    npc.templateId = tmpl->npcId;
-    npc.spawnId = record.spawn_point_id;
-    npc.factionId = tmpl->factionId;
-    
-    // Set stats from template
-    npc.maxHp = tmpl->hp;
-    npc.currentHp = npc.maxHp;
-    npc.isAlive = true;
-    npc.minDamage = tmpl->minDamage;
-    npc.maxDamage = tmpl->maxDamage;
-    
-    // Position from spawn point
-    npc.posX = record.posX;
-    npc.posY = record.posY;
-    npc.posZ = record.posZ;
-    npc.facingDegrees = record.heading;
-    
-    // Store spawn point for respawn/leashing
-    npc.spawnX = record.posX;
-    npc.spawnY = record.posY;
-    npc.spawnZ = record.posZ;
-    
-    // Respawn timing from spawn point
-    npc.respawnTimeSec = record.respawn_seconds;
-    npc.respawnTimerSec = 0.0f;
-    npc.pendingRespawn = false;
-    
-    // Behavior from template
-    npc.behaviorFlags.isSocial = tmpl->isSocial;
-    npc.behaviorFlags.canFlee = tmpl->canFlee;
-    npc.behaviorFlags.isRoamer = tmpl->isRoamer;
-    npc.behaviorFlags.leashToSpawn = true;
-    
-    npc.behaviorParams.aggroRadius = tmpl->aggroRadius;
-    npc.behaviorParams.socialRadius = tmpl->assistRadius;
-    npc.behaviorParams.leashRadius = 2000.0f;  // Default leash radius
-    npc.behaviorParams.maxChaseDistance = 2500.0f;  // Default max chase
-    npc.behaviorParams.preferredRange = 200.0f;  // Melee range
-    npc.behaviorParams.fleeHealthPercent = tmpl->canFlee ? 0.25f : 0.0f;
-    
-    // AI state
-    npc.aiState = req::shared::data::NpcAiState::Idle;
-    npc.currentTargetId = 0;
-    npc.hateTable.clear();
-    
-    // Attack timing
-    npc.meleeAttackCooldown = 1.5f;  // Default attack speed
-    npc.meleeAttackTimer = 0.0f;
-    npc.aggroScanTimer = 0.0f;
-    npc.leashTimer = 0.0f;
-    
-    // Movement
-    npc.moveSpeed = 50.0f;  // Default movement speed
-    
-    // Add to zone
-    npcs_[npc.npcId] = npc;
-    
-    // Update spawn record
-    record.state = SpawnState::Alive;
-    record.current_entity_id = npc.npcId;
-    
-    req::shared::logInfo("zone", std::string{"[SPAWN] Spawned NPC: instanceId="} +
-        std::to_string(npc.npcId) + ", templateId=" + std::to_string(npc.templateId) +
-        ", name=\"" + npc.name + "\", level=" + std::to_string(npc.level) +
-        ", spawnId=" + std::to_string(record.spawn_point_id) +
-        ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," +
-        std::to_string(npc.posZ) + ")");
-}
-
-void ZoneServer::scheduleRespawn(std::int32_t spawnPointId, double currentTime) {
-    auto it = spawnRecords_.find(spawnPointId);
-    if (it == spawnRecords_.end()) {
-        req::shared::logWarn("zone", std::string{"[SPAWN] Cannot schedule respawn - spawn point not found: spawn_id="} +
-            std::to_string(spawnPointId));
-        return;
-    }
-    
-    SpawnRecord& record = it->second;
-    
-    // Calculate next spawn time with jitter
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> jitterDist(-record.respawn_jitter_seconds, record.respawn_jitter_seconds);
-    float jitter = jitterDist(gen);
-    
-    record.state = SpawnState::WaitingToSpawn;
-    record.next_spawn_time = currentTime + record.respawn_seconds + jitter;
-    record.current_entity_id = 0;
-    
-    req::shared::logInfo("zone", std::string{"[SPAWN] Scheduled respawn: spawn_id="} +
-        std::to_string(spawnPointId) + ", npc_id=" + std::to_string(record.npc_template_id) +
-        ", respawn_in=" + std::to_string(record.respawn_seconds + jitter) + "s");
-}
+// NOTE: Spawn record functions (initializeSpawnRecords, processSpawns,
+//       spawnNpcAtPoint, scheduleRespawn) moved to ZoneServer_SpawnRecords.cpp
 
 // ============================================================================
 // Debug / Inspection Tools

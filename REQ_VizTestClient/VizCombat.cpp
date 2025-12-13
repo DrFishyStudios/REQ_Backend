@@ -30,6 +30,11 @@ sf::Vector2f WorldToScreen(
         float dy = a.y - b.y;
         return dx * dx + dy * dy;
     }
+    
+    // Helper: Check if entity is dead
+    bool IsEntityDead(const VizEntity& entity) {
+        return entity.hp <= 0;
+    }
 }
 
 // ============================================================================
@@ -55,6 +60,11 @@ void VizCombat_HandleMouseClickSelect(
     for (const auto& [id, entity] : entities) {
         // Skip local player
         if (entity.isLocalPlayer) {
+            continue;
+        }
+        
+        // Skip dead entities
+        if (IsEntityDead(entity)) {
             continue;
         }
         
@@ -110,6 +120,10 @@ bool VizCombat_HandleAttackKey(
     if (combat.attackClock.getElapsedTime().asSeconds() < combat.attackCooldownSec) {
         return false; // Still on cooldown
     }
+    
+    // Note: We don't check if target is dead here because we don't have worldState
+    // Dead check happens in main.cpp before calling this function
+    // Server will also reject attacks on dead NPCs
     
     // Send attack request
     const bool sent = req::clientcore::sendAttackRequest(
@@ -271,11 +285,24 @@ void VizCombat_ClearTargetIfDespawned(
     }
     
     const auto& entities = worldState.getEntities();
-    if (entities.find(combat.selectedTargetId) == entities.end()) {
+    auto it = entities.find(combat.selectedTargetId);
+    
+    if (it == entities.end()) {
         // Target despawned
         std::cout << "[COMBAT] Target " << combat.selectedTargetId << " despawned, clearing selection\n";
         
         combat.combatLog.push_back("Target despawned");
+        if (combat.combatLog.size() > combat.MAX_LOG_LINES) {
+            combat.combatLog.pop_front();
+        }
+        
+        combat.selectedTargetId = 0;
+    }
+    else if (IsEntityDead(it->second)) {
+        // Target is dead (HP <= 0)
+        std::cout << "[COMBAT] Target " << combat.selectedTargetId << " is dead, clearing selection\n";
+        
+        combat.combatLog.push_back("Target is dead");
         if (combat.combatLog.size() > combat.MAX_LOG_LINES) {
             combat.combatLog.pop_front();
         }
@@ -325,6 +352,11 @@ void VizCombat_CycleTarget(
     for (const auto& [id, entity] : entities) {
         if (entity.isLocalPlayer || !entity.isNpc) {
             continue; // Skip local player and other players
+        }
+        
+        // Skip dead entities
+        if (IsEntityDead(entity)) {
+            continue;
         }
         
         float dx = entity.posX - localPos.x;
@@ -417,6 +449,11 @@ void VizCombat_DrawHoverTooltip(
     for (const auto& [id, entity] : entities) {
         // Skip local player
         if (entity.isLocalPlayer) {
+            continue;
+        }
+        
+        // Skip dead entities
+        if (IsEntityDead(entity)) {
             continue;
         }
         

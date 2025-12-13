@@ -5,6 +5,23 @@
 #include "../../REQ_Shared/include/req/shared/DataModels.h"
 
 #include <cmath>
+#include <unordered_map>
+
+// DEBUG: Throttled entity send logging (per-client tracking)
+namespace {
+    struct ClientEntitySendTracker {
+        int entitySpawnCount = 0;
+        int entityUpdateCount = 0;
+        int entityDespawnCount = 0;
+        static constexpr int MAX_DEBUG_SENDS_PER_TYPE = 20;
+    };
+    
+    std::unordered_map<void*, ClientEntitySendTracker> g_clientTrackers;
+    
+    ClientEntitySendTracker& GetTracker(void* connectionPtr) {
+        return g_clientTrackers[connectionPtr];
+    }
+}
 
 namespace req::zone {
 
@@ -17,6 +34,10 @@ void ZoneServer::sendEntitySpawn(ConnectionPtr connection, std::uint64_t entityI
         req::shared::logWarn("zone", "[ENTITY_SPAWN] Null connection, cannot send spawn message");
         return;
     }
+    
+    // DEBUG: Throttled logging per client
+    auto& tracker = GetTracker(connection.get());
+    bool shouldLog = (tracker.entitySpawnCount < ClientEntitySendTracker::MAX_DEBUG_SENDS_PER_TYPE);
     
     // Check if entity is a player
     auto playerIt = players_.find(entityId);
@@ -41,8 +62,12 @@ void ZoneServer::sendEntitySpawn(ConnectionPtr connection, std::uint64_t entityI
         req::shared::net::Connection::ByteArray payloadBytes(payload.begin(), payload.end());
         connection->send(req::shared::MessageType::EntitySpawn, payloadBytes);
         
-        req::shared::logInfo("zone", std::string{"[ENTITY_SPAWN] Sent player spawn: entityId="} +
-            std::to_string(entityId) + ", name=" + spawnData.name);
+        if (shouldLog) {
+            req::shared::logInfo("zone", std::string{"[ENTITY_SPAWN #"} + std::to_string(tracker.entitySpawnCount) + 
+                "] Sent to client: type=44, entityId=" + std::to_string(entityId) +
+                ", entityType=0 (Player), payloadSize=" + std::to_string(payload.size()));
+            tracker.entitySpawnCount++;
+        }
         return;
     }
     
@@ -69,8 +94,12 @@ void ZoneServer::sendEntitySpawn(ConnectionPtr connection, std::uint64_t entityI
         req::shared::net::Connection::ByteArray payloadBytes(payload.begin(), payload.end());
         connection->send(req::shared::MessageType::EntitySpawn, payloadBytes);
         
-        req::shared::logInfo("zone", std::string{"[ENTITY_SPAWN] Sent NPC spawn: entityId="} +
-            std::to_string(entityId) + ", name=\"" + npc.name + "\"");
+        if (shouldLog) {
+            req::shared::logInfo("zone", std::string{"[ENTITY_SPAWN #"} + std::to_string(tracker.entitySpawnCount) + 
+                "] Sent to client: type=44, entityId=" + std::to_string(entityId) +
+                ", entityType=1 (NPC), name=\"" + npc.name + "\", payloadSize=" + std::to_string(payload.size()));
+            tracker.entitySpawnCount++;
+        }
         return;
     }
     

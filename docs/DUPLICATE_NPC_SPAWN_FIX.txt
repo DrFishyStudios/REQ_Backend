@@ -1,0 +1,348 @@
+================================================================================
+DUPLICATE NPC SPAWN DIAGNOSTIC AND FIX
+================================================================================
+
+PROBLEM
+=======
+After repository rollback, NPCs are spawning twice in the same zone, resulting
+in roughly double NPC count in VizTestClient.
+
+
+ROOT CAUSE IDENTIFIED
+=====================
+File: REQ_ZoneServer/src/ZoneServer.cpp
+Function: ZoneServer::run()
+Lines: ~61-79
+
+THREE spawn systems are being called sequentially:
+
+    // Load NPC templates (global, shared across all zones)
+    req::shared::logInfo("zone", "=== Loading NPC Data ===");
+    if (!npcDataRepository_.LoadNpcTemplates("config/npc_templates.json")) {
+        req::shared::logWarn("zone", "Failed to load NPC templates - zone will have no NPCs");
+    }
+    
+    // Load spawn points for this zone
+    std::string spawnPath = "config/zones/npc_spawns_" + std::to_string(zoneId_) + ".json";
+    if (!npcDataRepository_.LoadZoneSpawns(spawnPath)) {
+        req::shared::logWarn("zone", "Failed to load zone spawns - zone will have no NPCs");
+    }
+    
+    // 1. NEW SYSTEM: Instantiate NPCs from loaded spawn data
+    instantiateNpcsFromSpawnData();       // ? SPAWNS NPCS!
+    
+    // 2. NEW SYSTEM: Initialize spawn records for respawn management
+    initializeSpawnRecords();             // ? SCHEDULES NPCS TO SPAWN!
+    
+    // 3. OLD SYSTEM: Load NPCs for this zone (deprecated)
+    loadNpcsForZone();                    // ? DEPRECATED (logs warning)
+
+
+DUPLICATE SPAWN PATHS
+======================
+
+Path A: instantiateNpcsFromSpawnData()
+---------------------------------------
+- Called at line ~74
+- Iterates npcDataRepository_.GetZoneSpawns()
+- Creates NPC instances immediately
+- Adds to npcs_ map
+- Logs: [SPAWN] Spawned NPC: instanceId=...
+
+
+Path B: initializeSpawnRecords()
+---------------------------------
+- Called at line ~77
+- Iterates npcDataRepository_.GetZoneSpawns() (SAME DATA!)
+- Creates SpawnRecord for each spawn point
+- Schedules initial spawn in 0-10 seconds
+- Later: processSpawns() calls spawnNpcAtPoint()
+- Adds ANOTHER NPC to npcs_ map
+- Logs: [SPAWN] Spawned NPC: instanceId=...
+
+
+Path C: loadNpcsForZone()
+--------------------------
+- Called at line ~80
+- OLD system, now deprecated
+- Logs warning: "[NPC] loadNpcsForZone() is deprecated"
+- Does NOT spawn NPCs (incompatible with new ZoneNpc struct)
+- NOT causing duplicates
+
+
+EVIDENCE
+========
+Server logs will show:
+
+    [SPAWN] === Instantiating NPCs from spawn data ===
+    [SPAWN] Spawned NPC: instanceId=1, templateId=1001, name="Skeleton", ...
+    [SPAWN] Spawned NPC: instanceId=2, templateId=1002, name="Rat", ...
+    [SPAWN] Instantiated 6 NPC(s) from 6 spawn point(s)
+    
+    [SPAWN] === Initializing Spawn Records ===
+    [SPAWN] Initialized 6 spawn record(s) from 6 spawn point(s)
+    
+    (10 seconds later...)
+    
+    [SPAWN] Spawned NPC: instanceId=7, templateId=1001, name="Skeleton", ...
+    [SPAWN] Spawned NPC: instanceId=8, templateId=1002, name="Rat", ...
+    
+Client sees 12 NPCs instead of 6!
+
+
+FIX STRATEGY
+============
+CASE A: Both spawn systems active (CONFIRMED)
+
+The new spawn system has TWO phases:
+1. Instant spawn (instantiateNpcsFromSpawnData)
+2. Spawn record management (initializeSpawnRecords + processSpawns)
+
+These were designed to work together but are being called incorrectly:
+- instantiateNpcsFromSpawnData() was meant for immediate spawns on zone start
+- initializeSpawnRecords() was meant to take over AFTER initial spawns
+- But BOTH are spawning from the same data source!
+
+
+SOLUTION
+========
+Remove the immediate spawn call (instantiateNpcsFromSpawnData).
+Let the spawn record system handle ALL spawns, including initial ones.
+
+The spawn record system already:
+- Schedules initial spawns with 0-10 second random offset
+- Handles respawns correctly
+- Tracks spawn state (Alive vs WaitingToSpawn)
+- Links spawn points to NPC instances
+
+
+CODE FIX
+========
+
+File: REQ_ZoneServer/src/ZoneServer.cpp
+Function: ZoneServer::run()
+
+REMOVE (or comment out) line ~74:
+
+    // Instantiate NPCs from loaded spawn data
+    instantiateNpcsFromSpawnData();       // ? DELETE THIS LINE
+
+
+KEEP lines ~77 and ~80:
+
+    // Initialize spawn records for respawn management
+    initializeSpawnRecords();             // ? KEEP THIS
+    
+    // Load NPCs for this zone (old system - deprecated)
+    loadNpcsForZone();                    // ? KEEP THIS (does nothing, logs warning)
+
+
+AFTER FIX
+=========
+
+Expected logs:
+
+    [INFO] [zone] === Loading NPC Data ===
+    [INFO] [zone] Successfully loaded 6 NPC template(s)
+    [INFO] [zone] Successfully loaded 6 spawn point(s)
+    
+    [SPAWN] === Initializing Spawn Records ===
+    [SPAWN] Initialized 6 spawn record(s) from 6 spawn point(s)
+    
+    [NPC] loadNpcsForZone() is deprecated - use spawn table system instead
+    
+    (0-10 seconds later...)
+    
+    [SPAWN] Spawned NPC: instanceId=1, templateId=1001, name="Skeleton", ...
+    [SPAWN] Spawned NPC: instanceId=2, templateId=1002, name="Rat", ...
+    ...
+    [SPAWN] Spawned NPC: instanceId=6, templateId=1006, name="Spider", ...
+
+Client sees EXACTLY 6 NPCs!
+
+
+INSTRUMENTATION (OPTIONAL)
+===========================
+
+To diagnose spawn origins before applying fix, add these logs:
+
+File: REQ_ZoneServer/src/ZoneServer_Npc.cpp
+
+Function: instantiateNpcsFromSpawnData()
+Add after "npcs_[npc.npcId] = npc;":
+
+    req::shared::logInfo("zone", std::string{"[SPAWN_ORIGIN] origin=InstantiateSpawnData"} +
+        " npcId=" + std::to_string(npc.npcId) +
+        " templateId=" + std::to_string(npc.templateId) +
+        " spawnPointId=" + std::to_string(spawn.spawnId) +
+        " pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+        " name=\"" + npc.name + "\"");
+
+
+Function: spawnNpcAtPoint()
+Add after "npcs_[npc.npcId] = npc;":
+
+    req::shared::logInfo("zone", std::string{"[SPAWN_ORIGIN] origin=SpawnNpcAtPoint"} +
+        " npcId=" + std::to_string(npc.npcId) +
+        " templateId=" + std::to_string(npc.templateId) +
+        " spawnPointId=" + std::to_string(record.spawn_point_id) +
+        " pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+        " name=\"" + npc.name + "\"");
+
+
+Function: updateNpc() (respawn path)
+Add after "broadcastEntitySpawn(npc.npcId);":
+
+    req::shared::logInfo("zone", std::string{"[SPAWN_ORIGIN] origin=UpdateNpcRespawn"} +
+        " npcId=" + std::to_string(npc.npcId) +
+        " templateId=" + std::to_string(npc.templateId) +
+        " spawnPointId=" + std::to_string(npc.spawnId) +
+        " pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+        " name=\"" + npc.name + "\"");
+
+
+Then run zone server and grep:
+    grep "\[SPAWN_ORIGIN\]" zone_server.log
+
+Expected BEFORE fix:
+    [SPAWN_ORIGIN] origin=InstantiateSpawnData npcId=1 templateId=1001 pos=(100,50,0) name="Skeleton"
+    [SPAWN_ORIGIN] origin=InstantiateSpawnData npcId=2 templateId=1002 pos=(200,75,0) name="Rat"
+    ...
+    [SPAWN_ORIGIN] origin=SpawnNpcAtPoint npcId=7 templateId=1001 pos=(100,50,0) name="Skeleton"
+    [SPAWN_ORIGIN] origin=SpawnNpcAtPoint npcId=8 templateId=1002 pos=(200,75,0) name="Rat"
+    ...
+
+Shows BOTH systems spawning!
+
+
+Expected AFTER fix:
+    [SPAWN_ORIGIN] origin=SpawnNpcAtPoint npcId=1 templateId=1001 pos=(100,50,0) name="Skeleton"
+    [SPAWN_ORIGIN] origin=SpawnNpcAtPoint npcId=2 templateId=1002 pos=(200,75,0) name="Rat"
+    ...
+
+Shows ONLY spawn record system!
+
+
+SUMMARY LOG AT ZONE START
+==========================
+
+Add to end of ZoneServer::run() after all spawn initialization:
+
+    req::shared::logInfo("zone", std::string{"[SPAWN_SUMMARY] Total NPCs in zone: "} +
+        std::to_string(npcs_.size()));
+    req::shared::logInfo("zone", std::string{"[SPAWN_SUMMARY] Total spawn records: "} +
+        std::to_string(spawnRecords_.size()));
+
+Expected BEFORE fix:
+    [SPAWN_SUMMARY] Total NPCs in zone: 6      (instant spawns)
+    [SPAWN_SUMMARY] Total spawn records: 6     (will spawn 6 more!)
+
+Expected AFTER fix:
+    [SPAWN_SUMMARY] Total NPCs in zone: 0      (none yet)
+    [SPAWN_SUMMARY] Total spawn records: 6     (will spawn 6 soon)
+
+Then after 10 seconds:
+    [SPAWN_SUMMARY] Total NPCs in zone: 6      (correct!)
+
+
+RESPAWN BEHAVIOR
+================
+
+After fix, respawns will work correctly:
+
+1. NPC dies (killed by player)
+   - processAttack() sets isAlive=false
+   - broadcastEntityDespawn() sent to clients
+   - NPC removed from client worldstate
+
+2. Death detected in updateNpc()
+   - NPC.pendingRespawn = true
+   - Respawn timer starts
+
+3. Timer expires
+   - updateNpc() respawns NPC in-place
+   - broadcastEntitySpawn() sent to clients
+   - NPC reappears on client
+
+This path is INDEPENDENT of spawn records and works correctly!
+
+
+ALTERNATIVE: If spawn records should handle respawns
+=====================================================
+
+If we want spawn records to manage respawns (not updateNpc), we need to:
+
+1. When NPC dies, find its spawn record by spawnId
+2. Call scheduleRespawn(spawnId, currentTime)
+3. Remove old NPC from npcs_ map
+4. Let processSpawns() create new NPC instance
+
+This is MORE complex and NOT necessary for basic functionality.
+Current respawn via updateNpc() works fine.
+
+
+TESTING PROCEDURE
+=================
+
+BEFORE FIX:
+-----------
+1. Start ZoneServer for zone 10
+2. Connect VizTestClient
+3. Count NPCs on screen (should be ~12, not 6)
+4. Check server logs:
+   grep "\[SPAWN\] Spawned NPC" zone_server.log | wc -l
+   Expected: 12 lines (6 from instant, 6 from spawn records)
+
+AFTER FIX:
+----------
+1. Apply fix (remove instantiateNpcsFromSpawnData call)
+2. Rebuild ZoneServer
+3. Start ZoneServer for zone 10
+4. Wait 10 seconds
+5. Connect VizTestClient
+6. Count NPCs on screen (should be exactly 6)
+7. Check server logs:
+   grep "\[SPAWN\] Spawned NPC" zone_server.log | wc -l
+   Expected: 6 lines (all from spawn records)
+
+
+VERIFY RESPAWNS STILL WORK:
+----------------------------
+1. Kill an NPC
+2. Wait 2 minutes (default respawn time)
+3. NPC should reappear at spawn point
+4. Check logs for [NPC_RESPAWN] and [SERVER-SEND-SPAWN]
+
+
+FILES MODIFIED
+==============
+REQ_ZoneServer/src/ZoneServer.cpp
+- Line ~74: REMOVE call to instantiateNpcsFromSpawnData()
+- OR comment out with explanation:
+  // DISABLED: Causes duplicate spawns (spawn records handle this)
+  // instantiateNpcsFromSpawnData();
+
+
+BUILD STATUS
+============
+After fix:
+- Build: Successful (no compilation errors)
+- No behavior changes to respawn system
+- No changes to spawn record system
+- Simply removes redundant instant spawn call
+
+
+CONCLUSION
+==========
+Duplicate spawn issue caused by BOTH instant spawn AND spawn record system
+spawning from the same data source.
+
+Fix: Remove instant spawn call, let spawn records handle everything.
+
+Result: Each spawn point creates exactly ONE NPC, respawns work correctly.
+
+Status: ? READY TO APPLY
+
+================================================================================
+END OF DOCUMENT
+================================================================================

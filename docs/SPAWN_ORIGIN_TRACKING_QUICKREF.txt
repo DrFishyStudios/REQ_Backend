@@ -1,0 +1,145 @@
+================================================================================
+SPAWN ORIGIN TRACKING - QUICK REFERENCE
+================================================================================
+
+GOAL
+====
+Identify which system is creating duplicate NPC spawns:
+- SpawnRecords system (spawnNpcAtPoint)
+- Legacy timer path (updateNpc respawn)
+- Both (double scheduling)
+
+
+LOGS ADDED
+==========
+
+[SPAWN_ORIGIN] - NPC Creation Point
+------------------------------------
+Format: [SPAWN_ORIGIN] tag=<TAG> npcId=<id> spawnPointId=<spid> 
+        templateId=<tid> pos=(x,y,z) isAlive=<t/f>
+
+Tags:
+- SpawnNpcAtPoint: Spawn records system (normal)
+- LegacyUpdateNpcRespawn: Legacy respawn timer
+- InstantiateNpcsFromSpawnData: Deprecated (should be 0)
+
+
+[LEGACY_RESPAWN_ARMED] - Timer Started
+---------------------------------------
+Format: [LEGACY_RESPAWN_ARMED] npcId=<id> spawnPointId=<spid>
+        templateId=<tid> respawnDelay=<seconds>s pendingRespawn=true
+
+When: NPC dies, legacy timer starts
+
+
+[LEGACY_RESPAWN_FIRE] - Timer Expires
+--------------------------------------
+Format: [LEGACY_RESPAWN_FIRE] npcId=<id> spawnPointId=<spid>
+        templateId=<tid> respawnTimerSec=<value> about to respawn
+
+When: Timer expires, NPC about to respawn
+
+
+[RESPAWN_SCHEDULE] - Spawn Record Scheduled
+--------------------------------------------
+Format: [RESPAWN_SCHEDULE] spawnPointId=<id> prevState=<state>
+        nextSpawnTime=<timestamp> currentEntityId=<id> respawnDelay=<seconds>s
+
+When: Spawn record schedules respawn (currently unused)
+
+
+TESTING PROCEDURE
+=================
+
+1. Start ZoneServer
+   Expected: [SPAWN_ORIGIN] tag=SpawnNpcAtPoint (6 times for 6 spawn points)
+
+2. Kill one NPC
+   Expected: [LEGACY_RESPAWN_ARMED] npcId=X spawnPointId=Y
+
+3. Wait 120 seconds
+   Expected: [LEGACY_RESPAWN_FIRE] + [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn
+
+4. Repeat kill/respawn 3-5 times
+   Expected: Same pattern (no extra spawns)
+
+
+GREP COMMANDS
+=============
+
+All spawn origins:
+    grep "\[SPAWN_ORIGIN\]" zone_server.log
+
+Count tags:
+    grep "\[SPAWN_ORIGIN\]" zone_server.log | grep -o "tag=[^ ]*" | sort | uniq -c
+
+Legacy respawn events:
+    grep "\[LEGACY_RESPAWN" zone_server.log
+
+Specific spawn point:
+    grep "spawnPointId=1" zone_server.log | grep -E "\[SPAWN_ORIGIN\]|\[LEGACY_RESPAWN"
+
+
+DUPLICATE DETECTION
+===================
+
+GOOD (No Duplicates):
+    [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1 ...
+    [LEGACY_RESPAWN_ARMED] npcId=1 spawnPointId=1 ...
+    [LEGACY_RESPAWN_FIRE] npcId=1 spawnPointId=1 ...
+    [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn npcId=1 spawnPointId=1 ...
+
+BAD (Duplicate):
+    [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=1 spawnPointId=1 ...
+    [SPAWN_ORIGIN] tag=SpawnNpcAtPoint npcId=7 spawnPointId=1 ...  ? Same spawn point!
+
+
+EXPECTED COUNTS (6 Spawn Points, 3 Deaths)
+===========================================
+
+Tags:
+    6 tag=SpawnNpcAtPoint (initial spawns)
+    3 tag=LegacyUpdateNpcRespawn (respawns after deaths)
+    0 tag=InstantiateNpcsFromSpawnData (deprecated, should be 0)
+
+Total SPAWN_ORIGIN events: 9 (6 initial + 3 respawns)
+
+
+FILE LOCATIONS
+==============
+
+REQ_ZoneServer/src/ZoneServer_SpawnRecords.cpp (214 lines)
+- Line ~154: [SPAWN_ORIGIN] tag=SpawnNpcAtPoint
+- Line ~189: [RESPAWN_SCHEDULE]
+
+REQ_ZoneServer/src/ZoneServer_Npc.cpp (579 lines)
+- Line ~133: [SPAWN_ORIGIN] tag=InstantiateNpcsFromSpawnData
+- Line ~523: [LEGACY_RESPAWN_ARMED]
+- Line ~540: [LEGACY_RESPAWN_FIRE]
+- Line ~549: [SPAWN_ORIGIN] tag=LegacyUpdateNpcRespawn
+
+
+TROUBLESHOOTING
+===============
+
+If SpawnNpcAtPoint appears twice per spawn point:
+    Problem: Spawn records spawning duplicates
+    Check: ZoneServer_SpawnRecords.cpp, spawnNpcAtPoint()
+
+If LegacyUpdateNpcRespawn appears without LEGACY_RESPAWN_FIRE:
+    Problem: Legacy timer firing without being armed
+    Check: ZoneServer_Npc.cpp, updateNpc()
+
+If Both tags appear for same spawn point:
+    Problem: Both systems respawning
+    Fix: Disable one system (recommend keeping spawn records)
+
+
+STATUS
+======
+? All logs implemented
+? Files under 750 lines (579 + 214 = 793 total)
+? Ready for testing
+? Minimal performance impact
+
+================================================================================

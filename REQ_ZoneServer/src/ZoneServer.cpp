@@ -123,14 +123,46 @@ void ZoneServer::run() {
             std::to_string(npcDataRepository_.GetSpawnCount()) + " spawn point(s)");
     }
     
-    // Instantiate NPCs from loaded spawn data
-    instantiateNpcsFromSpawnData();
+    // ========================================================================
+    // SPAWN MODE DECISION (explicit gating to prevent duplicate spawns)
+    // ========================================================================
+    const std::size_t spawnRecordCount = npcDataRepository_.GetSpawnCount();
     
-    // Initialize spawn records for respawn management
-    initializeSpawnRecords();
+    if (spawnRecordCount > 0) {
+        // MODE: SpawnRecords (new system)
+        req::shared::logInfo("zone", std::string{"[SPAWN_MODE] SpawnRecords count="} + 
+            std::to_string(spawnRecordCount));
+        
+        // Initialize spawn records (will schedule spawns via processSpawns)
+        initializeSpawnRecords();
+        
+        // Defensive check: Ensure no NPCs were prematurely spawned
+        if (!npcs_.empty()) {
+            req::shared::logWarn("zone", std::string{"[SPAWN_MODE] WARNING: "} +
+                std::to_string(npcs_.size()) + " NPC(s) already exist before processSpawns! " +
+                "This indicates duplicate spawn path is active.");
+        }
+        
+    } else {
+        // MODE: Legacy (old system)
+        req::shared::logInfo("zone", "[SPAWN_MODE] Legacy (no spawn records, falling back to loadNpcsForZone)");
+        
+        // Use old NPC loader (currently deprecated and non-functional)
+        loadNpcsForZone();
+        
+        // Defensive check: Ensure spawn records weren't initialized
+        if (!spawnRecords_.empty()) {
+            req::shared::logWarn("zone", std::string{"[SPAWN_MODE] WARNING: "} +
+                std::to_string(spawnRecords_.size()) + " spawn record(s) exist in Legacy mode! " +
+                "This indicates both systems are active.");
+        }
+    }
     
-    // Load NPCs for this zone (old system - deprecated)
-    loadNpcsForZone();
+    // Log final spawn state
+    req::shared::logInfo("zone", std::string{"[SPAWN_SUMMARY] Total NPCs at zone start: "} +
+        std::to_string(npcs_.size()));
+    req::shared::logInfo("zone", std::string{"[SPAWN_SUMMARY] Total spawn records: "} +
+        std::to_string(spawnRecords_.size()));
     
     startAccept();
     

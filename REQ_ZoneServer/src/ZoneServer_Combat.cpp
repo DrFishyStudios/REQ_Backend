@@ -132,6 +132,9 @@ void ZoneServer::processAttack(ZonePlayer& attacker, req::shared::data::ZoneNpc&
             // Award XP for kill
             awardXpForNpcKill(target, attacker);
             
+            // CRITICAL: Broadcast EntityDespawn so clients remove dead NPC
+            broadcastEntityDespawn(target.npcId, 1);  // Reason 1 = Death
+            
             // Schedule respawn if NPC has a spawn point
             if (target.spawnId > 0) {
                 auto now = std::chrono::system_clock::now();

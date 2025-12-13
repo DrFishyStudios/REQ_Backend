@@ -1,0 +1,81 @@
+================================================================================
+IMMEDIATE INITIAL SPAWN - QUICK REFERENCE
+================================================================================
+
+CHANGE MADE
+===========
+Initial spawns now scheduled at 0.1 seconds (immediate) instead of 0-10 seconds random.
+
+
+THE FIX
+=======
+File: REQ_ZoneServer/src/ZoneServer_Npc.cpp
+Function: initializeSpawnRecords()
+
+OLD:
+    record.next_spawn_time = currentTime + offsetDist(gen);  // 0-10 seconds random
+
+NEW:
+    record.next_spawn_time = currentTime + 0.1;  // 0.1 seconds (immediate)
+
+
+EXPECTED LOGS
+=============
+
+Old (confusing):
+    [SPAWN] Initialized 6 spawn record(s) from 6 spawn point(s)
+    (wait 0-10 seconds...)
+    [SPAWN] Spawned NPC: instanceId=1, ...  ? Random timing
+
+New (clear):
+    [SPAWN] Initial spawns scheduled immediate (0.1s), 6 spawn record(s) initialized
+    (0.1 seconds later)
+    [SPAWN] Spawned NPC: instanceId=1, ...  ? All spawn together
+    [SPAWN] Spawned NPC: instanceId=2, ...
+    [SPAWN] Spawned NPC: instanceId=3, ...
+    ...
+
+
+CLIENT EXPERIENCE
+=================
+OLD: Connect ? Wait 0-10s ? NPCs gradually appear
+NEW: Connect ? NPCs appear instantly
+
+
+RESPAWNS
+========
+Still use randomized delay (respawn_seconds ± jitter).
+Only initial zone startup is immediate.
+
+
+TESTING
+=======
+Start ZoneServer ? Connect VizTestClient ? Count NPCs
+Expected: All NPCs visible within first frame (no waiting)
+
+
+VERIFICATION
+============
+grep "Initial spawns scheduled immediate" zone_server.log
+Expected: One line confirming immediate spawn mode
+
+grep "\[SPAWN\] Spawned NPC" zone_server.log | wc -l
+Expected: Count equals spawn point count
+
+
+BUILD STATUS
+============
+? Build successful
+? ZoneServer_Npc.cpp: 746 lines (under 750 limit)
+? No warnings
+
+
+BENEFITS
+========
+? No confusing startup delay
+? Instant testing verification
+? Clear logging
+? Preserves respawn variety
+? Minimal code changes (~10 lines)
+
+================================================================================

@@ -207,6 +207,7 @@
     <ClCompile Include="src\ZoneServer_Persistence.cpp" />
     <ClCompile Include="src\ZoneServer_Players.cpp" />
     <ClCompile Include="src\ZoneServer_Simulation.cpp" />
+    <ClCompile Include="src\ZoneServer_SpawnRecords.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\req\zone\NpcSpawnData.h" />

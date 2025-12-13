@@ -1,0 +1,446 @@
+================================================================================
+NPC RESPAWN INSTRUMENTATION - END-TO-END DIAGNOSTIC GUIDE
+================================================================================
+
+GOAL
+====
+Prove NPC respawns are replicated correctly from server ? client ? worldstate,
+or identify exact failure point.
+
+
+INSTRUMENTATION ADDED
+=====================
+
+1. CLIENT: TRACK ONE NPC (main.cpp)
+-----------------------------------
+Added global debug variable to track first spawned NPC:
+
+    std::uint64_t debugNpcId = 0;
+
+On first NPC spawn, set as debug target:
+
+    if (debugNpcId == 0 && spawn.entityType == 1) {
+        debugNpcId = spawn.entityId;
+        std::cout << "[DEBUG-RESPAWN-INIT] Tracking NPC: entityId=" 
+                  << debugNpcId << ", name=\"" << spawn.name << "\"\n";
+    }
+
+
+2. CLIENT: LOG ENTITYSPAWN RECEIPT (main.cpp)
+---------------------------------------------
+When receiving EntitySpawn (MessageType 44) for tracked NPC:
+
+    if (spawn.entityId == debugNpcId) {
+        std::cout << "[CLIENT-RECV-SPAWN] entityId=" << spawn.entityId
+                  << ", entityType=" << static_cast<int>(spawn.entityType)
+                  << ", pos=(" << spawn.posX << "," << spawn.posY 
+                  << "," << spawn.posZ << ")"
+                  << ", hp=" << spawn.hp << "/" << spawn.maxHp
+                  << ", isRespawn=" << (isRespawn ? "true" : "false") << "\n";
+    }
+
+Logs:
+- Entity ID
+- Entity type (0=Player, 1=NPC)
+- Position (X, Y, Z)
+- HP (current/max)
+- Whether this is a respawn
+
+
+3. WORLDSTATE: LOG INSERT VS OVERWRITE (VizWorldState.cpp)
+----------------------------------------------------------
+In applyEntitySpawn(), check if entity already exists:
+
+    bool entityExists = (entities_.find(spawn.entityId) != entities_.end());
+    std::string action = entityExists ? "OVERWRITE" : "INSERT";
+    
+    VizEntity& e = getOrCreateEntity(spawn.entityId, isNpc);
+    // ... apply data ...
+    
+    if (isNpc && spawn.entityId <= 10) {
+        std::cout << "[WORLDSTATE-APPLY] " << action 
+                  << " entityId=" << spawn.entityId
+                  << ", pos=(" << e.posX << "," << e.posY << "," << e.posZ << ")"
+                  << ", hp=" << e.hp << "/" << e.maxHp
+                  << ", name=\"" << e.name << "\"\n";
+    }
+
+Logs:
+- Whether entity was INSERTed (new) or OVERWRITten (respawn)
+- Final state after apply
+
+
+4. SERVER: LOG RESPAWN BROADCAST (ZoneServer_Npc.cpp)
+-----------------------------------------------------
+When NPC respawns in updateNpc():
+
+    req::shared::logInfo("zone", std::string{"[NPC_RESPAWN] Respawned: npcId="} +
+        std::to_string(npc.npcId) + ", templateId=" + std::to_string(npc.templateId) +
+        ", name=\"" + npc.name + "\", pos=(" + std::to_string(npc.posX) + "," +
+        std::to_string(npc.posY) + "," + std::to_string(npc.posZ) + ")" +
+        ", hp=" + std::to_string(npc.currentHp) + "/" + std::to_string(npc.maxHp) +
+        ", isAlive=" + (npc.isAlive ? "true" : "false"));
+    
+    req::shared::logInfo("zone", std::string{"[SERVER-SEND-SPAWN] Broadcasting: npcId="} +
+        std::to_string(npc.npcId) + ", entityType=1 (NPC)" +
+        ", pos=(" + std::to_string(npc.posX) + "," + std::to_string(npc.posY) + 
+        "," + std::to_string(npc.posZ) + ")" +
+        ", hp=" + std::to_string(npc.currentHp) + "/" + std::to_string(npc.maxHp));
+    
+    broadcastEntitySpawn(npc.npcId);
+
+Logs:
+- NPC state after respawn
+- Exact payload data being broadcast
+
+
+EXPECTED LOG FLOW
+=================
+
+STAGE 1: INITIAL SPAWN
+----------------------
+ZoneServer:
+    [SPAWN] Spawned NPC: instanceId=1, templateId=1001, name="A Decaying Skeleton", ...
+    [ENTITY_SPAWN] Broadcasting spawn: entityId=1
+    [ENTITY_SPAWN #0] Sent to client: type=44, entityId=1, entityType=1 (NPC), ...
+
+VizTestClient:
+    [DEBUG-RESPAWN-INIT] Tracking NPC: entityId=1, name="A Decaying Skeleton"
+    [CLIENT-RECV-SPAWN] entityId=1, entityType=1, pos=(100,50,0), hp=20/20, isRespawn=false
+    [WORLDSTATE-APPLY] INSERT entityId=1, pos=(100,50,0), hp=20/20, name="A Decaying Skeleton"
+
+Visual: Red circle with yellow outline appears at (100, 50)
+
+
+STAGE 2: DEATH
+--------------
+ZoneServer:
+    [COMBAT] NPC slain: npcId=1, name="A Decaying Skeleton", killerCharId=1
+    [ENTITY_DESPAWN] Broadcasting despawn: entityId=1, reason=1
+    [NPC] NPC died, respawn in 120s: id=1, name="A Decaying Skeleton"
+
+VizTestClient:
+    [VizWorldState] Removing entity 1 (reason=1)
+
+Visual: Red circle disappears
+
+
+STAGE 3: RESPAWN (AFTER 2 MINUTES)
+-----------------------------------
+ZoneServer:
+    [NPC_RESPAWN] Respawned: npcId=1, templateId=1001, name="A Decaying Skeleton", 
+                  pos=(100,50,0), hp=20/20, isAlive=true
+    [SERVER-SEND-SPAWN] Broadcasting: npcId=1, entityType=1 (NPC), 
+                        pos=(100,50,0), hp=20/20
+    [ENTITY_SPAWN] Broadcasting spawn: entityId=1
+    [ENTITY_SPAWN #0] Sent to client: type=44, entityId=1, ...
+
+VizTestClient:
+    [CLIENT-RECV-SPAWN] entityId=1, entityType=1, pos=(100,50,0), hp=20/20, isRespawn=false
+    [WORLDSTATE-APPLY] INSERT entityId=1, pos=(100,50,0), hp=20/20, name="A Decaying Skeleton"
+    [DEBUG-RESPAWN] NPC respawned: entityId=1, name="A Decaying Skeleton", hp=20/20, ...
+
+Visual: Red circle reappears at (100, 50)
+
+
+3-LINE DIAGNOSTIC TEMPLATE
+===========================
+
+After killing an NPC and waiting for respawn, check logs for these 3 lines:
+
+
+SUCCESS CASE
+------------
+1. Server sent spawn: [SERVER-SEND-SPAWN] Broadcasting: npcId=1, entityType=1, pos=(100,50,0), hp=20/20
+2. Client received spawn: [CLIENT-RECV-SPAWN] entityId=1, entityType=1, pos=(100,50,0), hp=20/20, isRespawn=false
+3. WorldState applied spawn: [WORLDSTATE-APPLY] INSERT entityId=1, pos=(100,50,0), hp=20/20
+
+Result: NPC reappears on screen ?
+
+
+FAILURE CASE 1: SERVER DOESN'T SEND
+------------------------------------
+1. Server sent spawn: ? MISSING
+2. Client received spawn: ? MISSING
+3. WorldState applied spawn: ? MISSING
+
+Diagnosis: broadcastEntitySpawn() not called or failed
+Fix Location: ZoneServer_Npc.cpp, updateNpc() respawn block
+Exact Line: After "npc.isAlive = true;", must call "broadcastEntitySpawn(npc.npcId);"
+
+
+FAILURE CASE 2: SERVER SENDS, CLIENT DOESN'T RECEIVE
+-----------------------------------------------------
+1. Server sent spawn: [SERVER-SEND-SPAWN] Broadcasting: npcId=1, ...
+2. Client received spawn: ? MISSING
+3. WorldState applied spawn: ? MISSING
+
+Diagnosis: Message not sent or lost in network/parsing
+Fix Location: ZoneServer_EntityMessages.cpp, broadcastEntitySpawn()
+Check:
+- Is connection valid?
+- Is payload built correctly?
+- Is connection->send() called?
+- Check client message pump in main.cpp
+
+
+FAILURE CASE 3: CLIENT RECEIVES, WORLDSTATE DOESN'T APPLY
+----------------------------------------------------------
+1. Server sent spawn: [SERVER-SEND-SPAWN] Broadcasting: npcId=1, ...
+2. Client received spawn: [CLIENT-RECV-SPAWN] entityId=1, ...
+3. WorldState applied spawn: ? MISSING
+
+Diagnosis: applyEntitySpawn() not called or crashes
+Fix Location: main.cpp, EntitySpawn message handler
+Exact Line: After parseEntitySpawn(), must call "worldState.applyEntitySpawn(spawn);"
+
+
+FAILURE CASE 4: WORLDSTATE APPLIES BUT ENTITY NOT VISIBLE
+----------------------------------------------------------
+1. Server sent spawn: [SERVER-SEND-SPAWN] Broadcasting: npcId=1, ...
+2. Client received spawn: [CLIENT-RECV-SPAWN] entityId=1, ...
+3. WorldState applied spawn: [WORLDSTATE-APPLY] INSERT entityId=1, ...
+
+But NPC doesn't appear on screen.
+
+Diagnosis: Rendering issue, not replication issue
+Fix Location: main.cpp, entity drawing loop
+Check:
+- Is entity in worldState.getEntities()?
+- Is entity position valid?
+- Is entity being drawn (red circle)?
+- Camera position issue?
+
+
+FAILURE DETECTION MATRIX
+=========================
+
+Server Log | Client Log | WorldState Log | Diagnosis              | Fix Location
+-----------|------------|----------------|------------------------|-------------------------
+? Missing | ? Missing | ? Missing     | No broadcast call      | updateNpc() respawn block
+? Present | ? Missing | ? Missing     | Message not sent/recv  | broadcastEntitySpawn() or network
+? Present | ? Present | ? Missing     | Apply not called       | main.cpp EntitySpawn handler
+? Present | ? Present | ? Present     | Rendering issue        | main.cpp draw loop
+
+
+TESTING PROCEDURE
+=================
+
+STEP 1: START SERVERS
+---------------------
+Terminal 1:
+    cd C:\C++\REQ_Backend\x64\Debug
+    .\REQ_LoginServer.exe
+
+Terminal 2:
+    .\REQ_WorldServer.exe
+
+Terminal 3:
+    .\REQ_ZoneServer.exe --world_id=1 --zone_id=10 --port=7779 --zone_name="Test Zone"
+
+
+STEP 2: CONNECT CLIENT
+-----------------------
+Terminal 4:
+    cd C:\C++\REQ_Backend\x64\Debug
+    .\REQ_VizTestClient.exe
+
+Expected initial output:
+    [DEBUG-RESPAWN-INIT] Tracking NPC: entityId=1, name="A Decaying Skeleton"
+    [CLIENT-RECV-SPAWN] entityId=1, entityType=1, pos=(100,50,0), hp=20/20, isRespawn=false
+    [WORLDSTATE-APPLY] INSERT entityId=1, pos=(100,50,0), hp=20/20, name="A Decaying Skeleton"
+
+Visual: One red circle visible on screen
+
+
+STEP 3: KILL THE TRACKED NPC
+-----------------------------
+1. Press Tab to cycle to NPC entityId=1
+2. Press F repeatedly to attack
+3. Wait for HP to reach 0
+
+Expected ZoneServer output:
+    [COMBAT] NPC slain: npcId=1, name="A Decaying Skeleton", killerCharId=...
+    [ENTITY_DESPAWN] Broadcasting despawn: entityId=1, reason=1
+    [NPC] NPC died, respawn in 120s: id=1, name="A Decaying Skeleton"
+
+Expected VizTestClient output:
+    [VizWorldState] Removing entity 1 (reason=1)
+
+Visual: Red circle disappears
+
+
+STEP 4: WAIT FOR RESPAWN (2 MINUTES)
+-------------------------------------
+Expected ZoneServer output after 120 seconds:
+    [NPC_RESPAWN] Respawned: npcId=1, templateId=1001, name="A Decaying Skeleton", 
+                  pos=(100,50,0), hp=20/20, isAlive=true
+    [SERVER-SEND-SPAWN] Broadcasting: npcId=1, entityType=1 (NPC), 
+                        pos=(100,50,0), hp=20/20
+    [ENTITY_SPAWN] Broadcasting spawn: entityId=1
+    [ENTITY_SPAWN #0] Sent to client: type=44, entityId=1, entityType=1 (NPC), ...
+
+Expected VizTestClient output:
+    [CLIENT-RECV-SPAWN] entityId=1, entityType=1, pos=(100,50,0), hp=20/20, isRespawn=false
+    [WORLDSTATE-APPLY] INSERT entityId=1, pos=(100,50,0), hp=20/20, name="A Decaying Skeleton"
+    [DEBUG-RESPAWN] NPC respawned: entityId=1, name="A Decaying Skeleton", hp=20/20, ...
+
+Visual: Red circle reappears at original spawn position
+
+
+STEP 5: EXTRACT 3-LINE CONCLUSION
+----------------------------------
+From ZoneServer console, find:
+    [SERVER-SEND-SPAWN] Broadcasting: npcId=1, entityType=1, pos=(100,50,0), hp=20/20
+
+From VizTestClient console, find:
+    [CLIENT-RECV-SPAWN] entityId=1, entityType=1, pos=(100,50,0), hp=20/20, isRespawn=false
+    [WORLDSTATE-APPLY] INSERT entityId=1, pos=(100,50,0), hp=20/20, name="A Decaying Skeleton"
+
+Write conclusion:
+    1. Server sent spawn: ? [SERVER-SEND-SPAWN] npcId=1 broadcasted
+    2. Client received spawn: ? [CLIENT-RECV-SPAWN] entityId=1 parsed successfully
+    3. WorldState applied spawn: ? [WORLDSTATE-APPLY] INSERT entityId=1 completed
+
+Result: ? END-TO-END RESPAWN REPLICATION VERIFIED!
+
+
+ADVANCED DIAGNOSTICS
+====================
+
+CHECK 1: IS ENTITYSPAWN PAYLOAD CORRECT?
+-----------------------------------------
+Server builds payload in: ZoneServer_EntityMessages.cpp, sendEntitySpawn()
+
+Payload format:
+    entityId|entityType|templateId|name|posX|posY|posZ|heading|level|hp|maxHp
+
+Example:
+    1|1|1001|A Decaying Skeleton|100|50|0|0|1|20|20
+
+Client parses in: Protocol_Zone.cpp, parseEntitySpawnPayload()
+
+Check for errors:
+- Server log should show payload size
+- Client should log parse success
+- If parse fails, check field count and types
+
+
+CHECK 2: IS BROADCASTENTITYSPAWN SENDING TO ALL CLIENTS?
+---------------------------------------------------------
+In ZoneServer_EntityMessages.cpp:
+
+    void ZoneServer::broadcastEntitySpawn(std::uint64_t entityId) {
+        // ...
+        for (auto& [characterId, player] : players_) {
+            if (!player.connection || !player.isInitialized) {
+                continue;  // ? Client might be skipped here
+            }
+            
+            player.knownEntities.insert(entityId);
+            sendEntitySpawn(player.connection, entityId);
+        }
+    }
+
+Check:
+- Is client in players_ map?
+- Is player.isInitialized true?
+- Is player.connection valid?
+
+
+CHECK 3: IS ENTITY BEING DRAWN?
+--------------------------------
+In main.cpp draw loop:
+
+    for (const auto& [id, entity] : worldState.getEntities())
+    {
+        const sf::Vector2f screenPos = worldToScreen(entity.posX, entity.posY);
+        // ...
+        window.draw(shape);
+    }
+
+Check:
+- Is entity in worldState.getEntities()?
+- Is worldToScreen() returning valid screen coords?
+- Is entity position within camera view?
+
+
+CODE CHANGES SUMMARY
+====================
+
+File                    | Change                    | Lines | Purpose
+------------------------|---------------------------|-------|----------------------------------
+main.cpp                | Add debugNpcId tracker    | +1    | Track one NPC for diagnostics
+main.cpp                | Log EntitySpawn receipt   | +10   | Prove client received message
+VizWorldState.cpp       | Log insert vs overwrite   | +8    | Prove worldstate applied
+ZoneServer_Npc.cpp      | Log respawn broadcast     | +5    | Prove server sent message
+
+Total: ~24 lines added
+
+All changes are DEBUG logging only - no behavior changes!
+
+
+SUMMARY
+=======
+
+INSTRUMENTATION COMPLETE
+------------------------
+Server:
+- ? Logs when NPC respawns
+- ? Logs EntitySpawn broadcast call
+- ? Logs payload fields (entityId, pos, hp)
+
+Client:
+- ? Tracks one NPC as debug target
+- ? Logs EntitySpawn receipt
+- ? Logs payload fields (entityId, pos, hp)
+
+WorldState:
+- ? Logs INSERT vs OVERWRITE action
+- ? Logs final entity state after apply
+
+
+HOW TO USE
+----------
+1. Kill tracked NPC (first NPC that spawns)
+2. Wait 2 minutes for respawn
+3. Check logs for 3 key lines:
+   - [SERVER-SEND-SPAWN] - Server sent
+   - [CLIENT-RECV-SPAWN] - Client received
+   - [WORLDSTATE-APPLY] - WorldState applied
+4. Diagnose using failure matrix if any line missing
+
+
+EXPECTED OUTCOME
+----------------
+If all 3 logs appear:
+- ? Server sends EntitySpawn (44)
+- ? Client receives and parses
+- ? WorldState inserts entity
+- ? NPC reappears on screen
+
+Problem is SOLVED! ?
+
+If any log missing:
+- Use failure matrix to find exact break point
+- Fix identified location
+- Re-test
+
+
+BUILD STATUS
+============
+? Build: Successful
+? All files: Under 750 line limit
+? No warnings: Clean compilation
+? Ready for testing: All instrumentation in place
+
+
+DIAGNOSTIC INSTRUMENTATION COMPLETE
+====================================
+Status: ? Ready to prove end-to-end respawn replication
+Next Step: Run test procedure and collect 3-line conclusion
+Expected Result: All 3 logs present ? respawn works correctly!
+
+================================================================================
+END OF DOCUMENT
+================================================================================
